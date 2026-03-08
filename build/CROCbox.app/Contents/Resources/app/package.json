@@ -1,0 +1,38 @@
+{
+  "name": "crocbox",
+  "version": "0.1.0-alpha",
+  "description": "CARD-Ready OpenClaw in a Box — Consent, Authorization, Risk-assessment, and Documentation for AI agents",
+  "main": "src/proxy/index.js",
+  "bin": {
+    "crocbox": "./src/installer/cli.js",
+    "create-crocbox": "./src/installer/create.js"
+  },
+  "scripts": {
+    "proxy": "node src/proxy/index.js",
+    "scanner": "node src/scanner/index.js",
+    "audit": "node src/audit/index.js",
+    "shell": "node src/shell/index.js",
+    "start": "node src/proxy/index.js",
+    "test": "node test/run.js",
+    "test:proxy": "node test/proxy.test.js"
+  },
+  "keywords": [
+    "openclaw",
+    "card",
+    "safety",
+    "proxy",
+    "agent",
+    "consent"
+  ],
+  "author": "Openly Personal Networks, Inc. (Opn.li)",
+  "license": "SEE LICENSE IN LICENSE",
+  "dependencies": {
+    "dotenv": "^16.4.0",
+    "express": "^4.21.0",
+    "http-proxy": "^1.18.1",
+    "ws": "^8.19.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

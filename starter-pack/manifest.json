@@ -1,0 +1,41 @@
+{
+  "version": "1.0.0",
+  "generated": "2026-03-07",
+  "description": "CROCbox Starter Pack — three pre-certified skills bundled with every install",
+  "installPath": "~/OpenClaw/skills",
+  "skills": [
+    {
+      "id": "file-organizer",
+      "name": "File Organizer",
+      "version": "1.0.0",
+      "description": "Sorts Desktop files by type and date into organized folders",
+      "riskLevel": "low",
+      "trustScore": null,
+      "certificationStatus": "pending-qas",
+      "qasTicket": "QAS-2026-001",
+      "directory": "file-organizer"
+    },
+    {
+      "id": "web-clipper",
+      "name": "Web Clipper",
+      "version": "1.0.0",
+      "description": "Saves webpage content to local Markdown files",
+      "riskLevel": "low",
+      "trustScore": null,
+      "certificationStatus": "pending-qas",
+      "qasTicket": "QAS-2026-002",
+      "directory": "web-clipper"
+    },
+    {
+      "id": "daily-note",
+      "name": "Daily Note",
+      "version": "1.0.0",
+      "description": "Creates a daily journal entry from a prompt",
+      "riskLevel": "low",
+      "trustScore": null,
+      "certificationStatus": "pending-qas",
+      "qasTicket": "QAS-2026-003",
+      "directory": "daily-note"
+    }
+  ]
+}

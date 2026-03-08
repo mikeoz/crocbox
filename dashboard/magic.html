@@ -1,0 +1,568 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CROCbox — Welcome to the Agent Economy</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+.magic-shell { max-width: 560px; margin: 0 auto; padding: 40px 20px 72px; min-height: 100vh; display: flex; flex-direction: column; }
+.skip-link { position: fixed; top: 18px; right: 20px; font-size: 12px; color: var(--text-xdim); text-decoration: none; font-family: var(--mono); padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); transition: color 0.15s, border-color 0.15s; z-index: 100; }
+.skip-link:hover { color: var(--text); border-color: var(--border-l); }
+.magic-header { text-align: center; margin-bottom: 32px; }
+.magic-header .eyebrow { display: inline-block; font-size: 11px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); background: var(--accent-bg); border: 1px solid var(--accent-dim); border-radius: 3px; padding: 3px 10px; margin-bottom: 16px; }
+.magic-header h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.4px; color: var(--text); margin-bottom: 8px; line-height: 1.25; }
+.magic-header p { color: var(--text-dim); font-size: 14px; line-height: 1.6; max-width: 420px; margin: 0 auto; }
+.demo-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 16px; }
+.demo-card-header { padding: 22px 24px 0; }
+.demo-card-header .label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-xdim); margin-bottom: 6px; }
+.demo-card-header h2 { font-size: 19px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.demo-card-header p { font-size: 13px; color: var(--text-dim); line-height: 1.5; }
+.demo-body { padding: 20px 24px 24px; }
+.what-happens { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin: 16px 0 20px; font-size: 13px; color: var(--text-dim); line-height: 1.7; }
+.step-list { display: flex; flex-direction: column; gap: 8px; }
+.step-item { display: flex; align-items: flex-start; gap: 10px; font-size: 13px; color: var(--text-dim); }
+.step-num { width: 20px; height: 20px; border-radius: 50%; background: var(--surface-3); border: 1px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: var(--text-xdim); flex-shrink: 0; margin-top: 1px; }
+#state-awaiting-consent { display: none; }
+.consent-waiting { display: flex; flex-direction: column; align-items: center; padding: 8px 0 4px; text-align: center; }
+.consent-waiting .spinner-large { width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 14px; }
+.consent-waiting p { font-size: 14px; color: var(--text-dim); }
+#state-consent-prompt { display: none; }
+.consent-prompt-box { border: 1px solid var(--accent-dim); border-radius: var(--radius); background: var(--accent-bg); padding: 18px 20px; margin-bottom: 16px; }
+.consent-prompt-box .consent-source { font-size: 11px; font-family: var(--mono); text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); margin-bottom: 10px; }
+.consent-prompt-box .consent-question { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 6px; }
+.consent-prompt-box .consent-detail { font-size: 13px; color: var(--text-dim); }
+.consent-actions { display: flex; gap: 10px; }
+.teaching-note { font-size: 12px; color: var(--text-xdim); font-style: italic; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+#state-scanning { display: none; }
+.scan-status { display: flex; align-items: center; gap: 10px; font-size: 14px; color: var(--text-dim); margin-bottom: 14px; }
+.progress-track { height: 3px; background: var(--surface-2); border-radius: 2px; overflow: hidden; margin-bottom: 14px; }
+.progress-fill { height: 100%; background: var(--accent); border-radius: 2px; width: 0%; transition: width 0.4s ease; }
+.scan-log { font-family: var(--mono); font-size: 12px; color: var(--text-xdim); height: 72px; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; }
+.log-line { animation: fadeInLog 0.2s ease forwards; }
+.log-line.active { color: var(--text-dim); }
+#state-result { display: none; }
+.result-header { display: flex; align-items: center; gap: 10px; margin-bottom: 16px; }
+.result-check { width: 28px; height: 28px; border-radius: 50%; background: var(--accent-dim); border: 1px solid var(--accent); display: flex; align-items: center; justify-content: center; color: var(--accent); font-size: 14px; flex-shrink: 0; }
+.result-header h3 { font-size: 16px; font-weight: 600; color: var(--text); }
+.result-header .result-count { font-size: 13px; color: var(--text-dim); }
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+.stat-cell { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; text-align: center; }
+.stat-cell .stat-n { font-size: 20px; font-weight: 700; font-family: var(--mono); color: var(--text); line-height: 1.1; }
+.stat-cell .stat-l { font-size: 11px; color: var(--text-xdim); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 3px; }
+.suggestion-box { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px; }
+.suggestion-box .sug-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-xdim); margin-bottom: 8px; }
+.suggestion-item { display: flex; align-items: center; justify-content: space-between; font-size: 13px; color: var(--text-dim); padding: 6px 0; border-bottom: 1px solid var(--border); }
+.suggestion-item:last-child { border-bottom: none; }
+.suggestion-item .sug-text { flex: 1; }
+.suggestion-item .btn-sug { flex-shrink: 0; font-size: 11px; padding: 5px 10px; }
+.result-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
+#state-organize-consent { display: none; }
+#state-organizing { display: none; }
+#state-done { display: none; }
+.done-inner { text-align: center; padding: 8px 0 4px; }
+.done-badge { display: inline-flex; align-items: center; justify-content: center; width: 48px; height: 48px; border-radius: 50%; background: var(--accent-dim); border: 1px solid var(--accent); font-size: 22px; color: var(--accent); margin-bottom: 14px; }
+.done-inner h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; color: var(--text); }
+.done-inner .done-quote { font-size: 14px; color: var(--text-dim); line-height: 1.6; max-width: 380px; margin: 0 auto 20px; }
+#state-denied { display: none; }
+.denied-inner { text-align: center; padding: 8px 0 4px; }
+.denied-inner .denied-icon { font-size: 32px; margin-bottom: 12px; }
+.denied-inner h3 { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+.denied-inner p { font-size: 13px; color: var(--text-dim); line-height: 1.6; margin-bottom: 16px; }
+#state-fallback { display: none; }
+.fallback-inner { text-align: center; padding: 8px 0 4px; }
+.fallback-inner .fallback-icon { font-size: 32px; margin-bottom: 12px; }
+.fallback-inner h3 { font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 8px; }
+.fallback-inner p { font-size: 13px; color: var(--text-dim); line-height: 1.6; margin-bottom: 16px; max-width: 380px; margin-left: auto; margin-right: auto; }
+.mock-summary { background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; font-size: 13px; color: var(--text-dim); text-align: left; margin-bottom: 16px; }
+.mock-summary .mock-label { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.07em; color: var(--text-xdim); margin-bottom: 8px; }
+.mock-row { padding: 4px 0; display: flex; justify-content: space-between; }
+.mock-row span { color: var(--text-xdim); font-family: var(--mono); font-size: 12px; }
+.ask-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 20px 24px; margin-bottom: 16px; }
+.ask-card .ask-label { font-size: 13px; color: var(--text-dim); margin-bottom: 10px; }
+.ask-row { display: flex; gap: 8px; align-items: stretch; }
+.ask-row input { flex: 1; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px; font-family: var(--sans); padding: 10px 14px; outline: none; transition: border-color 0.15s; }
+.ask-row input:focus { border-color: var(--accent-dim); }
+.ask-row input::placeholder { color: var(--text-xdim); }
+@keyframes fadeInLog { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ── Phase 2: OpenClaw Debut ─────────────────────────────── */
+.transition-card { background: var(--surface); border: 1px solid var(--accent-dim); border-radius: var(--radius-lg); padding: 28px 24px; margin-bottom: 16px; display: none; }
+.transition-card .tc-check { font-size: 13px; color: var(--accent); margin-bottom: 6px; font-weight: 600; }
+.transition-card .tc-divider { width: 32px; height: 2px; background: var(--accent-dim); margin: 14px 0; }
+.transition-card .tc-headline { font-size: 20px; font-weight: 700; color: var(--text); margin-bottom: 6px; line-height: 1.3; }
+.transition-card .tc-sub { font-size: 14px; color: var(--text-dim); margin-bottom: 20px; line-height: 1.6; }
+.phase2-shell { display: none; margin-bottom: 16px; }
+.phase2-header { text-align: center; padding: 0 0 20px; }
+.phase2-header .ai-badge { display: inline-flex; align-items: center; gap: 8px; background: var(--accent-bg); border: 1px solid var(--accent-dim); border-radius: 20px; padding: 6px 14px; font-size: 12px; font-weight: 600; color: var(--accent); margin-bottom: 14px; }
+.phase2-header .ai-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: pulse 1.5s ease-in-out infinite; }
+.phase2-header h2 { font-size: 20px; font-weight: 700; color: var(--text); margin-bottom: 6px; }
+.phase2-header p { font-size: 13px; color: var(--text-dim); line-height: 1.6; }
+.chat-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; margin-bottom: 16px; }
+.chat-messages { min-height: 80px; max-height: 480px; overflow-y: auto; padding: 20px 20px 8px; display: flex; flex-direction: column; gap: 14px; }
+.chat-msg { display: flex; flex-direction: column; max-width: 85%; }
+.chat-msg.user { align-self: flex-end; align-items: flex-end; }
+.chat-msg.ai { align-self: flex-start; align-items: flex-start; }
+.chat-msg .msg-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-xdim); margin-bottom: 4px; }
+.chat-msg.ai .msg-label { color: var(--accent); }
+.chat-msg .msg-bubble { padding: 10px 14px; border-radius: 12px; font-size: 14px; line-height: 1.6; }
+.chat-msg.user .msg-bubble { background: var(--accent); color: #0c0e11; border-bottom-right-radius: 4px; font-weight: 500; }
+.chat-msg.ai .msg-bubble { background: var(--surface-2); border: 1px solid var(--border); color: var(--text); border-bottom-left-radius: 4px; white-space: pre-wrap; }
+.chat-msg.ai .msg-bubble.thinking { color: var(--text-xdim); font-style: italic; }
+.chat-consent-box { margin: 4px 0 8px; max-width: 85%; align-self: flex-start; width: 100%; }
+.chat-consent-inner { background: var(--accent-bg); border: 1px solid var(--accent-dim); border-radius: var(--radius); padding: 14px 16px; }
+.chat-consent-inner .cc-source { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+.chat-consent-inner .cc-question { font-size: 15px; font-weight: 600; color: var(--text); margin-bottom: 4px; }
+.chat-consent-inner .cc-detail { font-size: 12px; color: var(--text-dim); margin-bottom: 12px; }
+.chat-consent-inner .cc-actions { display: flex; gap: 8px; }
+.chat-consent-inner .cc-note { font-size: 11px; color: var(--text-xdim); font-style: italic; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.chat-input-area { padding: 12px 16px 16px; border-top: 1px solid var(--border); background: var(--surface); }
+.preloaded-hint { font-size: 11px; color: var(--accent); margin-bottom: 8px; font-weight: 600; letter-spacing: 0.04em; }
+.chat-input-row { display: flex; gap: 8px; }
+.chat-input-row textarea { flex: 1; background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); color: var(--text); font-size: 14px; font-family: var(--sans); padding: 10px 14px; outline: none; resize: none; min-height: 44px; max-height: 120px; line-height: 1.5; transition: border-color 0.15s; overflow-y: auto; }
+.chat-input-row textarea:focus { border-color: var(--accent-dim); }
+.chat-input-row textarea::placeholder { color: var(--text-xdim); }
+.phase3-bar { display: none; align-items: center; justify-content: space-between; padding: 10px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 16px; font-size: 12px; }
+.phase3-bar .p3-left { color: var(--text-dim); display: flex; align-items: center; gap: 6px; }
+.phase3-bar .p3-left .shield { color: var(--accent); }
+.phase3-bar a { color: var(--accent); text-decoration: none; font-size: 11px; font-weight: 600; }
+.phase3-bar a:hover { text-decoration: underline; }
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+</style>
+</head>
+<body>
+<a class="skip-link" href="/index.html">Skip to Dashboard →</a>
+<div class="magic-shell">
+  <div class="magic-header">
+    <div class="eyebrow">Welcome to CROCbox</div>
+    <h1>Your AI is ready.<br>Let's show you what it can do — safely.</h1>
+    <p>Watch CROCbox intercept an AI action and ask your permission.<br>This is the <strong style="color:var(--text)">Magic Moment</strong>.</p>
+  </div>
+  <div class="demo-card" id="demoCard">
+    <div class="demo-card-header">
+      <div class="label">📁 Live Demo</div>
+      <h2>Organize My Desktop</h2>
+      <p>Your AI will scan your Desktop and suggest how to organize it. You'll see every step — and you can stop it anytime.</p>
+    </div>
+    <div class="demo-body">
+      <div id="state-idle">
+        <div class="what-happens">
+          <div class="step-list">
+            <div class="step-item"><div class="step-num">1</div><span>You click <strong style="color:var(--text)">Start Demo</strong></span></div>
+            <div class="step-item"><div class="step-num">2</div><span><strong style="color:var(--text)">CROCbox intercepts</strong> the action and asks your permission</span></div>
+            <div class="step-item"><div class="step-num">3</div><span>You click <strong style="color:var(--text)">Allow</strong> — your AI scans your Desktop</span></div>
+            <div class="step-item"><div class="step-num">4</div><span>You see a <strong style="color:var(--text)">real summary</strong> of your files</span></div>
+          </div>
+        </div>
+        <button class="btn btn-accent btn-lg btn-block" id="btnStartDemo">▶ Start Demo</button>
+      </div>
+      <div id="state-awaiting-consent">
+        <div class="consent-waiting">
+          <div class="spinner-large"></div>
+          <p><strong style="color:var(--text)">Sending request to CROCbox…</strong><br>A consent prompt is about to appear.</p>
+        </div>
+      </div>
+      <div id="state-consent-prompt">
+        <div class="consent-prompt-box">
+          <div class="consent-source">🛡️ CROCbox — Action Intercepted</div>
+          <div class="consent-question" id="consentQuestion">Your AI wants to read your Desktop folder</div>
+          <div class="consent-detail" id="consentDetail">Action: Read filesystem · Target: ~/Desktop</div>
+        </div>
+        <div class="consent-actions">
+          <button class="btn btn-accent btn-lg" id="btnAllow">✓ Allow</button>
+          <button class="btn btn-red" id="btnDeny">✕ Deny</button>
+        </div>
+        <div class="teaching-note">This is CROCbox working. Every time your AI wants to do something sensitive, you see this prompt. Nothing happens without your say-so.</div>
+      </div>
+      <div id="state-scanning">
+        <div class="scan-status"><span class="spinner"></span><span id="scanStatusText">Scanning Desktop…</span></div>
+        <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+        <div class="scan-log" id="scanLog"></div>
+      </div>
+      <div id="state-result">
+        <div class="result-header">
+          <div class="result-check">✓</div>
+          <div><h3>Scan complete</h3><div class="result-count" id="resultCount">Found 0 files on your Desktop</div></div>
+        </div>
+        <div class="stat-grid" id="statGrid"></div>
+        <div class="suggestion-box" id="suggestionBox"><div class="sug-label">💡 Suggestions</div><div id="suggestionList"></div></div>
+        <div style="margin-top:16px;">
+          <button class="btn btn-accent btn-lg btn-block" id="btnMeetAI">Now — meet your AI →</button>
+          <div style="text-align:center;margin-top:10px;"><a href="/index.html" style="font-size:12px;color:var(--text-xdim);text-decoration:none;">Skip to Dashboard</a></div>
+        </div>
+      </div>
+      <div id="state-organize-consent">
+        <div class="consent-prompt-box">
+          <div class="consent-source">🛡️ CROCbox — Second Action Intercepted</div>
+          <div class="consent-question" id="organizeQuestion">Your AI wants to create folders and move files on your Desktop</div>
+          <div class="consent-detail" id="organizeDetail">Action: Write filesystem · Target: ~/Desktop/Screenshots/</div>
+        </div>
+        <div class="consent-actions">
+          <button class="btn btn-accent btn-lg" id="btnOrganizeAllow">✓ Allow</button>
+          <button class="btn btn-red" id="btnOrganizeDeny">✕ Deny</button>
+        </div>
+        <div class="teaching-note">Two actions, two prompts. CROCbox asks separately for read and write. You control each one.</div>
+      </div>
+      <div id="state-organizing">
+        <div class="scan-status"><span class="spinner"></span><span id="organizeStatusText">Moving files…</span></div>
+        <div class="progress-track"><div class="progress-fill" style="width:60%"></div></div>
+      </div>
+      <div id="state-done">
+        <div class="done-inner">
+          <div class="done-badge">✓</div>
+          <h3>That's CROCbox.</h3>
+          <p class="done-quote">You saw every action. You approved each step.<br><strong>Your AI is powerful — and you're in control.</strong></p>
+          <button class="btn btn-accent btn-lg btn-block" id="btnMeetAIDone">Now — meet your AI →</button>
+          <div style="text-align:center;margin-top:10px;"><a href="/index.html" style="font-size:12px;color:var(--text-xdim);text-decoration:none;">Skip to Dashboard</a></div>
+        </div>
+      </div>
+      <div id="state-denied">
+        <div class="denied-inner">
+          <div class="denied-icon">🛡️</div>
+          <h3>Access denied — by you.</h3>
+          <p>You blocked the action. CROCbox obeyed immediately.<br>That's exactly how it's supposed to work.</p>
+          <button class="btn btn-accent btn-lg btn-block" id="btnMeetAIDenied">Now — meet your AI →</button>
+          <div style="text-align:center;margin-top:10px;"><button class="btn btn-ghost btn-sm" id="btnRetry">Try again</button></div>
+        </div>
+      </div>
+      <div id="state-fallback">
+        <div class="fallback-inner">
+          <div class="fallback-icon">⚙️</div>
+          <h3>CROCbox running in preview mode</h3>
+          <p>The CARD Proxy isn't running right now. Here's a preview of what the scan would look like:</p>
+          <div class="mock-summary">
+            <div class="mock-label">Simulated Desktop scan</div>
+            <div class="mock-row">Screenshots (PNG, JPG) <span>23</span></div>
+            <div class="mock-row">Documents (PDF, DOCX) <span>12</span></div>
+            <div class="mock-row">Downloads (ZIP, DMG) <span>8</span></div>
+            <div class="mock-row">Folders <span>4</span></div>
+          </div>
+          <button class="btn btn-accent btn-lg btn-block" id="btnMeetAIFallback">Now — meet your AI →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  
+  <!-- ── Phase 2: Transition Card ───────────────────────── -->
+<-m transition card removed -->
+
+  <!-- ── Phase 2: OpenClaw Debut ──────────────────────────── -->
+  <div class="phase2-shell" id="phase2Shell">
+    <div class="phase2-header">
+      <div class="ai-badge"><div class="dot"></div> Your AI is live</div>
+      <h2>Ask your AI anything</h2>
+      <p>Try the suggested prompt, or type your own.<br>Watch what happens when your AI takes action.</p>
+    </div>
+    <div class="chat-card">
+      <div class="chat-messages" id="chatMessages"></div>
+      <div class="chat-input-area">
+        <div class="preloaded-hint" id="preloadedHint">✦ Suggested first question — edit or replace it:</div>
+        <div class="chat-input-row">
+          <textarea id="chatInput" rows="2">What are the 5 most popular skills on ClawHub right now?</textarea>
+          <button class="btn btn-accent" id="btnAskAI" style="align-self:flex-end;padding:10px 16px;white-space:nowrap;">Ask Your AI →</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Phase 3: Status Bar ──────────────────────────────── -->
+  <div class="phase3-bar" id="phase3Bar">
+    <div class="p3-left"><span class="shield">🛡️</span> CROCbox is watching. You're in control.</div>
+    <a href="/audit.html">View Activity</a>
+  </div>
+
+<div class="ask-card">
+    <div class="ask-label">Or, ask your AI anything:</div>
+    <div class="ask-row">
+      <input type="text" id="askInput" placeholder="e.g. What's on my Desktop?" />
+      <button class="btn btn-accent" id="btnAsk">Ask →</button>
+    </div>
+    <div id="askResult" style="margin-top:12px;font-size:13px;color:var(--text-dim);display:none;line-height:1.6;"></div>
+  </div>
+</div>
+<script>
+(function(){
+'use strict';
+let currentRequestId=null,scanResult=null,pendingOrganize=null,ws=null;
+const states=['idle','awaiting-consent','consent-prompt','scanning','result','organize-consent','organizing','done','denied','fallback'];
+function showState(name){states.forEach(s=>{const el=document.getElementById('state-'+s);if(el)el.style.setProperty('display',(s===name)?'block':'none','important');});}
+function connectProxyWS(){
+  try{
+    ws=new WebSocket('ws://127.0.0.1:18790/crocbox/consent');
+    ws.addEventListener('open',()=>{ws.send(JSON.stringify({type:'dashboard_connect',timestamp:new Date().toISOString()}));});
+    ws.addEventListener('message',(evt)=>{let msg;try{msg=JSON.parse(evt.data);}catch{return;}handleProxyMessage(msg);});
+    ws.addEventListener('close',()=>{ws=null;});
+    ws.addEventListener('error',()=>{ws=null;});
+  }catch(e){ws=null;}
+}
+function handleProxyMessage(msg){
+  if(msg.type==='ping'){if(ws&&ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify({type:'pong'}));return;}
+  if(msg.type==='consent_request'){
+    currentRequestId=msg.request_id;
+    document.getElementById('consentQuestion').textContent='Your AI wants to read your Desktop folder';
+    document.getElementById('consentDetail').textContent='Action: Read filesystem · Target: ~/Desktop';
+    showState('consent-prompt');return;
+  }
+  if(msg.type==='consent_resolved'&&msg.result==='timeout'){showState('denied');}
+}
+function sendConsentResponse(requestId,decision){
+  if(!ws||ws.readyState!==WebSocket.OPEN)return;
+  ws.send(JSON.stringify({type:'consent_response',request_id:requestId,decision:decision}));
+}
+document.getElementById('btnStartDemo').addEventListener('click',async()=>{
+  let proxyRunning=false;
+  try{const r=await fetch('/api/magic-demo/status');const d=await r.json();proxyRunning=d.proxyRunning;}catch{}
+  if(!proxyRunning){showState('fallback');return;}
+  showState('consent-prompt');
+});
+document.getElementById('btnAllow').addEventListener('click',async()=>{
+  // Hide all states first
+  states.forEach(s=>{const el=document.getElementById('state-'+s);if(el)el.style.setProperty('display','none','important');});
+  // Show a simple loading indicator
+  const loadingEl=document.createElement('div');
+  loadingEl.id='scan-loading';
+  loadingEl.style.cssText='padding:20px;text-align:center;color:var(--text-dim);font-size:14px;';
+  loadingEl.innerHTML='<span class="spinner"></span> Scanning Desktop...';
+  document.querySelector('.demo-body').appendChild(loadingEl);
+  // Call scan API
+  let result;
+  try{
+    const resp=await fetch('/api/magic-demo/scan',{method:'POST'});
+    result=await resp.json();
+  }catch(e){
+    loadingEl.remove();
+    showState('fallback');return;
+  }
+  loadingEl.remove();
+  if(!result){showState('fallback');return;}
+  if(result.fallback){showState('fallback');return;}
+  if(result.denied||(result.success===false&&result.reason)){showState('denied');return;}
+  if(result.success){
+    renderResult(result.summary);
+    scanResult=result.summary;
+    document.getElementById('state-result').style.setProperty('display','block','important');
+    return;
+  }
+  showState('fallback');
+});
+document.getElementById('btnDeny').addEventListener('click',()=>{
+  if(currentRequestId){sendConsentResponse(currentRequestId,'deny');currentRequestId=null;}
+  showState('denied');
+});
+document.getElementById('btnOrganizeAllow').addEventListener('click',async()=>{
+  if(currentRequestId){sendConsentResponse(currentRequestId,'allow');currentRequestId=null;}
+  showState('organizing');
+  if(!pendingOrganize){showState('done');return;}
+  let orgResult;
+  try{const resp=await fetch('/api/magic-demo/organize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dest:pendingOrganize.dest})});orgResult=await resp.json();}catch{orgResult={success:false};}
+  document.getElementById('organizeStatusText').textContent=orgResult.success?`Moved ${orgResult.moved} file${orgResult.moved!==1?'s':''} to ${orgResult.dest}/`:'Organization complete.';
+  setTimeout(()=>showState('done'),800);
+});
+document.getElementById('btnOrganizeDeny').addEventListener('click',()=>{
+  if(currentRequestId){sendConsentResponse(currentRequestId,'deny');currentRequestId=null;}
+  showState('done');
+});
+function animateScan(){
+  const fill=document.getElementById('progressFill');
+  const log=document.getElementById('scanLog');
+  const status=document.getElementById('scanStatusText');
+  const lines=['Reading ~/Desktop...','Enumerating files...','Classifying by type...','Identifying screenshots...','Identifying documents...','Building suggestions...','Scan complete.'];
+  let i=0;
+  function step(){if(i<lines.length){const line=document.createElement('div');line.className='log-line active';line.textContent='> '+lines[i];log.prepend(line);fill.style.width=((i+1)/lines.length*100)+'%';status.textContent=lines[i];i++;setTimeout(step,280+Math.random()*180);}}
+  step();
+}
+function renderResult(summary){
+  document.getElementById('resultCount').textContent=`Found ${summary.total} item${summary.total!==1?'s':''} on your Desktop`;
+  const grid=document.getElementById('statGrid');grid.innerHTML='';
+  const catLabels={screenshots:'Screenshots',documents:'Documents',downloads:'Downloads',folders:'Folders',spreadsheets:'Spreadsheets',code:'Code',media:'Media',other:'Other'};
+  Object.entries(summary.categories).filter(([,v])=>v.count>0).sort((a,b)=>b[1].count-a[1].count).slice(0,6).forEach(([key,val])=>{
+    const cell=document.createElement('div');cell.className='stat-cell';
+    cell.innerHTML=`<div class="stat-n">${val.count}</div><div class="stat-l">${catLabels[key]||key}</div>`;
+    grid.appendChild(cell);
+  });
+  const list=document.getElementById('suggestionList');list.innerHTML='';
+  if(!summary.suggestions||summary.suggestions.length===0){
+    list.innerHTML='<div style="font-size:13px;color:var(--text-xdim)">Nothing obvious to reorganize — looking good!</div>';
+    document.getElementById('suggestionBox').style.display='none';
+  } else {
+    summary.suggestions.forEach(sug=>{
+      const row=document.createElement('div');row.className='suggestion-item';
+      if(sug.dest){
+        row.innerHTML=`<span class="sug-text">${sug.label}</span><button class="btn btn-accent btn-sug" data-dest="${sug.dest}">Do it →</button>`;
+        row.querySelector('button').addEventListener('click',()=>startOrganize(sug.dest,sug.label));
+      } else {row.innerHTML=`<span class="sug-text">${sug.label}</span>`;}
+      list.appendChild(row);
+    });
+  }
+}
+function startOrganize(dest,label){
+  pendingOrganize={dest,label};
+  document.getElementById('organizeQuestion').textContent=`Your AI wants to create a "${dest}" folder and move files there`;
+  document.getElementById('organizeDetail').textContent=`Action: Write filesystem · Target: ~/Desktop/${dest}/`;
+  showState('organize-consent');
+}
+// btnNoThanks removed
+document.getElementById('btnRetry').addEventListener('click',()=>{currentRequestId=null;showState('idle');
+
+// Phase 1 end states now have inline Meet AI buttons
+});
+['btnMeetAI','btnMeetAIDone','btnMeetAIDenied','btnMeetAIFallback'].forEach(id=>{
+  const el=document.getElementById(id);
+  if(el)el.addEventListener('click',()=>{
+    document.getElementById('demoCard').style.setProperty('display','none','important');
+    const p2=document.getElementById('phase2Shell');
+    p2.style.setProperty('display','block','important');
+    p2.scrollIntoView({behavior:'smooth',block:'start'});
+    setTimeout(()=>document.getElementById('chatInput').focus(),400);
+  });
+});
+document.getElementById('btnAsk').addEventListener('click',async()=>{
+  const prompt=document.getElementById('askInput').value.trim();if(!prompt)return;
+  const btn=document.getElementById('btnAsk');const resultEl=document.getElementById('askResult');
+  btn.disabled=true;btn.textContent='…';resultEl.style.display='none';
+  try{const resp=await fetch('/api/ask-openclaw',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt})});const data=await resp.json();resultEl.textContent=data.reply||data.error||'No response.';resultEl.style.display='';}
+  catch(e){resultEl.textContent='Could not reach AI service.';resultEl.style.display='';}
+  btn.disabled=false;btn.textContent='Ask →';
+});
+document.getElementById('askInput').addEventListener('keydown',(e)=>{if(e.key==='Enter')document.getElementById('btnAsk').click();});
+showState('idle');
+connectProxyWS();
+})();
+
+// ── Phase 2 + Phase 3 Logic ───────────────────────────────
+let chatHistory = [];
+let phase2Active = false;
+let phase3Active = false;
+let pendingConsentResolve = null;
+
+function showTransition() {
+  const tc = document.getElementById('transitionCard');
+  if (tc) { tc.style.setProperty('display','block','important'); tc.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
+}
+
+// btnMeetAI handled above
+
+function appendMessage(role, text, isThinking) {
+  const container = document.getElementById('chatMessages');
+  const wrap = document.createElement('div');
+  wrap.className = 'chat-msg ' + role;
+  const label = document.createElement('div');
+  label.className = 'msg-label';
+  label.textContent = role === 'user' ? 'You' : 'Your AI';
+  const bubble = document.createElement('div');
+  bubble.className = 'msg-bubble' + (isThinking ? ' thinking' : '');
+  bubble.textContent = text;
+  wrap.appendChild(label);
+  wrap.appendChild(bubble);
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+  return bubble;
+}
+
+function appendConsentPrompt(query, onAllow, onDeny) {
+  const container = document.getElementById('chatMessages');
+  const wrap = document.createElement('div');
+  wrap.className = 'chat-consent-box';
+  wrap.innerHTML = `
+    <div class="chat-consent-inner">
+      <div class="cc-source">🛡️ CROCbox — Action Intercepted</div>
+      <div class="cc-question">Your AI wants to access the web</div>
+      <div class="cc-detail">Searching for: "${query}"</div>
+      <div class="cc-actions">
+        <button class="btn btn-accent" id="ccAllow">✓ Allow</button>
+        <button class="btn btn-red" id="ccDeny">✕ Deny</button>
+      </div>
+      <div class="cc-note">CROCbox intercepted this before any data was sent. Your choice.</div>
+    </div>`;
+  container.appendChild(wrap);
+  container.scrollTop = container.scrollHeight;
+  wrap.querySelector('#ccAllow').addEventListener('click', () => { wrap.remove(); onAllow(); });
+  wrap.querySelector('#ccDeny').addEventListener('click', () => { wrap.remove(); onDeny(); });
+  return wrap;
+}
+
+async function sendToOpenClaw(userPrompt) {
+  const btn = document.getElementById('btnAskAI');
+  const input = document.getElementById('chatInput');
+  btn.disabled = true;
+  btn.textContent = '…';
+
+  // Clear pre-loaded hint
+  document.getElementById('preloadedHint').style.display = 'none';
+
+  // Show user message
+  appendMessage('user', userPrompt);
+  input.value = '';
+  input.placeholder = 'Ask your AI anything...';
+
+  // Show thinking indicator
+  const thinkingBubble = appendMessage('ai', '⏳ Your AI is on it — pulling live data now…', true);
+  btn.textContent = '⏳ Working…';
+
+  try {
+    const resp = await fetch('/api/ask-openclaw', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: userPrompt, history: chatHistory })
+    });
+    const data = await resp.json();
+
+    thinkingBubble.parentElement.remove();
+
+    if (data.error) {
+      appendMessage('ai', 'Something went wrong: ' + data.error);
+    } else {
+      // Show consent prompt inline if consent fired
+      if (data.consentFired && data.consentDecision && data.consentDecision !== 'allow' && data.consentDecision !== 'remember') {
+        // Consent was denied — response already includes denial message
+        appendMessage('ai', data.reply);
+      } else if (data.consentFired) {
+        // Consent was approved (happened server-side via proxy) — show educational note
+        const consentNote = document.createElement('div');
+        consentNote.className = 'chat-consent-box';
+        consentNote.innerHTML = `<div class="chat-consent-inner" style="background:var(--surface-2);border-color:var(--border)"><div class="cc-source" style="color:var(--accent)">✓ CROCbox — Web Access Approved</div><div style="font-size:13px;color:var(--text-dim)">Your AI searched: "${data.webSearchQuery}"</div></div>`;
+        document.getElementById('chatMessages').appendChild(consentNote);
+        document.getElementById('chatMessages').scrollTop = document.getElementById('chatMessages').scrollHeight;
+        appendMessage('ai', data.reply);
+      } else {
+        appendMessage('ai', data.reply);
+      }
+
+      // Update history
+      if (data.updatedHistory) chatHistory = data.updatedHistory;
+      else {
+        chatHistory.push({ role: 'user', content: userPrompt });
+        chatHistory.push({ role: 'assistant', content: data.reply });
+      }
+
+      // Activate Phase 3
+      if (!phase3Active) {
+        phase3Active = true;
+        document.getElementById('phase3Bar').style.setProperty('display','flex','important');
+      }
+    }
+  } catch (err) {
+    thinkingBubble.parentElement.remove();
+    appendMessage('ai', 'I ran into a connection issue. Please try again.');
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Ask Your AI →';
+}
+
+document.getElementById('btnAskAI').addEventListener('click', () => {
+  const prompt = document.getElementById('chatInput').value.trim();
+  if (!prompt) return;
+  sendToOpenClaw(prompt);
+});
+
+document.getElementById('chatInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('btnAskAI').click(); }
+});
+
+
+
+</script>
+</body>
+</html>

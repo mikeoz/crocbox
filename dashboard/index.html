@@ -1,0 +1,718 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CROCbox</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  /* ── Pending Approvals ──────────────────── */
+  .approvals-section { margin-bottom: 24px; }
+
+  .approval-clear {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 16px 22px;
+    color: var(--text-dim);
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .consent-card {
+    background: var(--surface);
+    border: 1px solid var(--accent-dim);
+    border-radius: var(--radius-lg);
+    padding: 20px 24px;
+    margin-bottom: 10px;
+    animation: fadeIn 0.3s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
+
+  .consent-card .headline {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .consent-card .detail {
+    font-size: 13px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  .consent-card .timer {
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 12px;
+  }
+  .consent-card .timer-bar {
+    height: 4px;
+    border-radius: 2px;
+    background: var(--surface-2);
+    margin-bottom: 4px;
+    overflow: hidden;
+  }
+  .consent-card .timer-bar .fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 1s linear;
+  }
+  .consent-card .actions {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .consent-card .outcome {
+    font-size: 14px;
+    font-weight: 500;
+    padding: 8px 0;
+  }
+  .consent-card .outcome.allowed { color: var(--green); }
+  .consent-card .outcome.denied { color: var(--red); }
+  .consent-card .dismiss-btn {
+    font-size: 12px;
+    color: var(--text-xdim);
+    cursor: pointer;
+    margin-top: 4px;
+  }
+  .consent-card .dismiss-btn:hover { color: var(--text-dim); }
+
+  .proxy-status {
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 0;
+    color: var(--text-dim);
+  }
+
+  /* ── My Data / My Agents ────────────────── */
+  .overview-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  @media (max-width: 640px) { .overview-grid { grid-template-columns: 1fr; } }
+
+  .overview-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 20px 22px;
+  }
+
+  .ov-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .ov-item:last-child { border-bottom: none; }
+  .ov-icon { font-size: 20px; width: 28px; text-align: center; flex-shrink: 0; }
+  .ov-info { flex: 1; min-width: 0; }
+  .ov-name { font-size: 14px; font-weight: 500; }
+  .ov-meta { font-size: 11px; color: var(--text-dim); }
+  .ov-badge { flex-shrink: 0; }
+
+  .ov-add {
+    display: block;
+    text-align: center;
+    padding: 10px;
+    font-size: 13px;
+    color: var(--accent);
+    text-decoration: none;
+    border-top: 1px solid var(--border);
+    margin-top: 4px;
+    transition: background 0.15s;
+  }
+  .ov-add:hover { background: var(--surface-2); }
+
+  /* ── Recent Activity ────────────────────── */
+  .activity-section { margin-bottom: 24px; }
+
+  .act-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .act-item:last-child { border-bottom: none; }
+  .act-time { color: var(--text-dim); font-size: 12px; white-space: nowrap; width: 65px; flex-shrink: 0; }
+  .act-icon { font-size: 16px; width: 24px; text-align: center; flex-shrink: 0; }
+  .act-desc { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .act-result { flex-shrink: 0; font-size: 12px; font-weight: 600; }
+  .act-allowed { color: var(--green); }
+  .act-denied { color: var(--red); }
+  .act-intercepted { color: var(--yellow); }
+
+  /* ── Trust Score ────────────────────────── */
+  .trust-section { margin-bottom: 24px; }
+  .trust-bar-bg { height: 10px; background: var(--surface-2); border-radius: 5px; overflow: hidden; margin: 8px 0; }
+  .trust-bar-fill { height: 100%; border-radius: 5px; transition: width 0.5s; }
+  .trust-score-big { font-size: 28px; font-weight: 700; margin-right: 8px; }
+  .trust-label { font-size: 12px; color: var(--text-dim); }
+</style>
+</head>
+<body data-page="home">
+<div class="shell">
+
+  <!-- ═══ PENDING APPROVALS ══════════════════ -->
+  <div class="approvals-section">
+    <div class="card-header">PENDING APPROVALS</div>
+    <div id="consentArea">
+      <div class="approval-clear" id="approvalClear">
+        ✓ No pending approvals — your agent is operating within its permissions.
+      </div>
+    </div>
+    <div class="proxy-status" id="proxyStatus">
+      <span class="dot dot-dim" id="proxyDot"></span>
+      <span id="proxyLabel">Connecting to proxy…</span>
+    </div>
+  </div>
+
+  <!-- ═══ ASK OPENCLAW ══════════════════════════ -->
+  <div id="askOpenClawSection" style="display:none;margin-bottom:24px;">
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px 32px;">
+      <div id="askGreeting" style="font-size:22px;font-weight:700;margin-bottom:6px;color:var(--text);">Hi there 👋</div>
+      <div style="font-size:14px;color:var(--text-dim);margin-bottom:20px;">What would you like your agent to do?</div>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <input id="askInput" type="text" placeholder="e.g. Check my email for anything urgent…" autocomplete="off" data-1p-ignore
+          style="flex:1;background:var(--surface-2);border:1px solid var(--border-l);border-radius:8px;padding:12px 16px;font-size:15px;color:var(--text);outline:none;font-family:var(--sans);"
+          onkeydown="if(event.key==='Enter')sendToOpenClaw()" />
+        <button onclick="sendToOpenClaw()"
+          style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:12px 24px;font-size:15px;font-weight:700;cursor:pointer;white-space:nowrap;">
+          Ask OpenClaw →
+        </button>
+      </div>
+      <div id="askStatus" style="font-size:13px;color:var(--text-dim);margin-top:10px;min-height:20px;"></div>
+      <div id="askReply" style="display:none;margin-top:16px;background:var(--surface-2);border-radius:8px;padding:16px 18px;font-size:14px;color:var(--text);line-height:1.6;white-space:pre-wrap;"></div>
+    </div>
+  </div>
+
+  <!-- ═══ MY DATA + MY AGENTS ════════════════ -->
+  <div class="overview-grid">
+
+    <div class="overview-card">
+      <div class="card-header">MY DATA</div>
+      <div id="dataOverview">
+        <div class="empty" style="padding:16px;"><div class="spinner"></div></div>
+      </div>
+      <a href="/data.html" class="ov-add">+ New Data Room</a>
+    </div>
+
+    <div class="overview-card">
+      <div class="card-header">MY AGENTS</div>
+      <div id="agentsOverview">
+        <div class="empty" style="padding:16px;"><div class="spinner"></div></div>
+      </div>
+      <a href="/agents.html" class="ov-add">+ Add Agent</a>
+    </div>
+
+  </div>
+
+  <!-- ═══ AGENT CONNECTION CARD ═══════════════ -->
+  <div id="agentConnectSection" class="activity-section" style="display:none;">
+    <div class="card card-flush" style="border:1px solid var(--accent-dim);padding:24px 28px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:8px;">
+        <span style="font-size:22px;">🔌</span>
+        <div class="card-header" style="margin:0;">CONNECT YOUR OPENCLAW AGENT</div>
+      </div>
+      <p style="font-size:14px;color:var(--text-dim);margin:0 0 20px;">
+        CROCbox is running and ready. One click routes your OpenClaw agent through CROCbox — then watch this dashboard come alive.
+      </p>
+
+      <div style="display:flex;align-items:center;gap:12px;margin-top:16px;">
+        <button id="connectOCBtn" onclick="connectOpenClaw()"
+          style="background:var(--accent);color:#000;border:none;border-radius:8px;padding:10px 24px;font-size:14px;font-weight:700;cursor:pointer;letter-spacing:0.01em;">
+          ⚡ Connect OpenClaw Now
+        </button>
+        <span id="connectOCStatus" style="font-size:13px;color:var(--text-dim);"></span>
+      </div>
+      <p style="font-size:12px;color:var(--text-xdim);margin:10px 0 0;">
+        This adds the gateway config to ~/.openclaw/openclaw.json. You can remove it anytime from OpenClaw settings.
+      </p>
+    </div>
+  </div>
+
+  <!-- ═══ RECENT ACTIVITY ════════════════════ -->
+  <div class="activity-section">
+    <div class="card card-flush">
+      <div class="card-header">RECENT ACTIVITY</div>
+      <div id="activityList" style="padding:0 24px 16px;">
+        <div class="empty" style="padding:16px;"><div class="spinner"></div></div>
+      </div>
+      <a href="/activity.html" class="ov-add">View All Activity →</a>
+    </div>
+  </div>
+
+  <!-- ═══ TRUST SCORE ════════════════════════ -->
+  <div class="trust-section">
+    <div class="card">
+      <div class="card-header">TRUST SCORE</div>
+      <div style="display:flex;align-items:baseline;">
+        <span class="trust-score-big" id="trustScoreNum">—</span>
+        <span id="trustScoreBadge"></span>
+      </div>
+      <div class="trust-bar-bg">
+        <div class="trust-bar-fill" id="trustBar" style="width:0%;background:var(--green);"></div>
+      </div>
+      <div class="trust-label" id="trustLabel">Checking installed skills…</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- Supabase + shared -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/shared/supabase.js"></script>
+<script src="/shared/auth.js"></script>
+<script src="/shared/nav.js"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  const ENTITY_FORM = '96583b62-2ee5-40e3-a633-fb14e88e888b';
+  const DATA_FORM   = '147a8e87-46f6-4145-b27e-87abbf8cdb77';
+
+  // ══════════════════════════════════════════════
+  // 1. PENDING APPROVALS — WebSocket to CARD Proxy
+  // ══════════════════════════════════════════════
+  const consentArea = document.getElementById('consentArea');
+  const approvalClear = document.getElementById('approvalClear');
+  const proxyDot = document.getElementById('proxyDot');
+  const proxyLabel = document.getElementById('proxyLabel');
+
+  let ws = null;
+  let pendingConsents = new Map();
+  let wsRetryCount = 0;
+  const WS_URL = 'ws://127.0.0.1:18790/crocbox/consent';
+
+
+
+  // ══════════════════════════════════════════════
+  // ASK OPENCLAW
+  // ══════════════════════════════════════════════
+  window.sendToOpenClaw = async function() {
+    const input = document.getElementById('askInput');
+    const status = document.getElementById('askStatus');
+    const text = input.value.trim();
+    if (!text) return;
+
+    status.textContent = '⏳ Sending to OpenClaw…';
+    status.style.color = 'var(--text-dim)';
+
+    try {
+      const res = await fetch('/api/ask-openclaw', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: text })
+      });
+      const data = await res.json();
+      if (data.success) {
+        status.textContent = '✅ OpenClaw responded:';
+        status.style.color = 'var(--green)';
+        input.value = '';
+        const replyDiv = document.getElementById('askReply');
+        if (replyDiv && data.reply) {
+          replyDiv.textContent = data.reply;
+          replyDiv.style.display = 'block';
+        }
+      } else {
+        status.textContent = '⚠️ ' + (data.error || 'Something went wrong.');
+        status.style.color = 'var(--yellow)';
+      }
+    } catch (err) {
+      status.textContent = '❌ Could not reach OpenClaw. Is it running?';
+      status.style.color = 'var(--red)';
+    }
+  };
+
+  function updateAskSection(userName) {
+    const section = document.getElementById('askOpenClawSection');
+    const greeting = document.getElementById('askGreeting');
+    if (!section) return;
+    const first = userName ? userName.split(' ')[0] : null;
+    if (greeting) greeting.textContent = first ? 'Hi ' + first + ' 👋' : 'Hi there 👋';
+    section.style.display = 'block';
+  }
+
+  window.connectOpenClaw = async function() {
+    const btn = document.getElementById('connectOCBtn');
+    const status = document.getElementById('connectOCStatus');
+    btn.disabled = true;
+    btn.textContent = 'Connecting...';
+    status.textContent = '';
+    try {
+      const res = await fetch('/api/connect-openclaw', { method: 'POST' });
+      const data = await res.json();
+      if (data.success) {
+        btn.textContent = '✅ Connected!';
+        btn.style.background = 'var(--green)';
+        if (data.status === 'already_connected') {
+          status.textContent = 'OpenClaw was already connected to CROCbox.';
+        } else {
+          status.textContent = 'OpenClaw is now routing through CROCbox. Start your agent to see it in action.';
+          status.style.color = 'var(--green)';
+        }
+        // Hide the card after 4 seconds
+        setTimeout(() => {
+          const section = document.getElementById('agentConnectSection');
+          if (section) section.style.display = 'none';
+        }, 4000);
+      } else {
+        btn.textContent = '⚡ Connect OpenClaw Now';
+        btn.disabled = false;
+        status.textContent = 'Error: ' + (data.error || 'Unknown error');
+        status.style.color = 'var(--red)';
+      }
+    } catch (err) {
+      btn.textContent = '⚡ Connect OpenClaw Now';
+      btn.disabled = false;
+      status.textContent = 'Connection failed. Is CROCbox running?';
+      status.style.color = 'var(--red)';
+    }
+  }
+
+  function copyAgentConfig() {
+    const text = document.getElementById('agentConfigText').innerText;
+    navigator.clipboard.writeText(text).then(() => {
+      const btn = document.getElementById('copyConfigBtn');
+      btn.textContent = 'Copied!';
+      btn.style.color = 'var(--green)';
+      setTimeout(() => { btn.textContent = 'Copy'; btn.style.color = ''; }, 2000);
+    });
+  }
+
+  function updateAgentConnectCard(agents) {
+    const section = document.getElementById('agentConnectSection');
+    if (!section) return;
+    if (!agents || agents.length === 0) {
+      section.style.display = 'block';
+    } else {
+      section.style.display = 'none';
+    }
+  }
+
+  function connectWS() {
+    try {
+      ws = new WebSocket(WS_URL);
+
+      ws.onopen = () => {
+        proxyDot.className = 'dot dot-green';
+        proxyLabel.textContent = 'Connected to CARD Proxy';
+        wsRetryCount = 0;
+      };
+
+      ws.onmessage = (e) => {
+        try {
+          const msg = JSON.parse(e.data);
+          if (msg.type === 'consent_request') {
+            showConsentCard(msg);
+          }
+        } catch {}
+      };
+
+      ws.onclose = () => {
+        proxyDot.className = 'dot dot-dim';
+        proxyLabel.textContent = 'CARD Proxy not running';
+        if (wsRetryCount < 3) {
+          wsRetryCount++;
+          setTimeout(connectWS, 5000);
+        }
+      };
+
+      ws.onerror = () => {
+        proxyDot.className = 'dot dot-red';
+        proxyLabel.textContent = 'Cannot reach CARD Proxy';
+      };
+    } catch {
+      proxyDot.className = 'dot dot-dim';
+      proxyLabel.textContent = 'CARD Proxy not running';
+    }
+  }
+
+  function showConsentCard(msg) {
+    approvalClear.style.display = 'none';
+
+    const id = msg.id || crypto.randomUUID();
+    const card = document.createElement('div');
+    card.className = 'consent-card';
+    card.dataset.id = id;
+
+    const action = msg.action || msg.actionType || 'Action';
+    const target = msg.target || msg.url || '';
+    const timeout = msg.timeout || 300000;
+    const startTime = Date.now();
+
+    card.innerHTML = `
+      <div class="headline">🔔 Your agent wants to ${esc(action.toLowerCase().replace('_', ' '))}</div>
+      <div class="detail">${esc(target)}</div>
+      <div class="timer-bar"><div class="fill" style="width:100%"></div></div>
+      <div class="timer">${Math.round(timeout / 1000)}s remaining</div>
+      <div class="actions">
+        <button class="btn btn-accent btn-sm" data-decision="allow">Allow</button>
+        <button class="btn btn-red btn-sm" data-decision="deny">Deny</button>
+        <button class="btn btn-sm" data-decision="remember">Allow & Remember</button>
+      </div>
+    `;
+
+    consentArea.prepend(card);
+    pendingConsents.set(id, { msg, card, startTime, timeout });
+
+    // Timer countdown
+    const timerInterval = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const remaining = Math.max(0, timeout - elapsed);
+      const pct = (remaining / timeout) * 100;
+      const fill = card.querySelector('.fill');
+      const timerText = card.querySelector('.timer');
+      if (fill) fill.style.width = pct + '%';
+      if (timerText) timerText.textContent = Math.round(remaining / 1000) + 's remaining';
+      if (remaining <= 0) {
+        clearInterval(timerInterval);
+        resolveConsent(id, 'timeout');
+      }
+    }, 1000);
+
+    // Button clicks
+    card.querySelector('.actions').addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-decision]');
+      if (!btn) return;
+      clearInterval(timerInterval);
+      resolveConsent(id, btn.dataset.decision);
+    });
+  }
+
+  function resolveConsent(id, decision) {
+    const entry = pendingConsents.get(id);
+    if (!entry) return;
+
+    // Send decision to proxy
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: 'consent_response',
+        id: entry.msg.id,
+        decision: decision === 'remember' ? 'allow_remember' : decision
+      }));
+    }
+
+    // Update card to show outcome
+    const card = entry.card;
+    const actions = card.querySelector('.actions');
+    const timer = card.querySelector('.timer');
+    const timerBar = card.querySelector('.timer-bar');
+    if (actions) actions.remove();
+    if (timer) timer.remove();
+    if (timerBar) timerBar.remove();
+
+    const outcomeEl = document.createElement('div');
+    if (decision === 'allow' || decision === 'remember') {
+      outcomeEl.className = 'outcome allowed';
+      outcomeEl.textContent = decision === 'remember' ? '✅ Allowed & Remembered' : '✅ Allowed by you';
+    } else if (decision === 'deny') {
+      outcomeEl.className = 'outcome denied';
+      outcomeEl.textContent = '🚫 Denied by you';
+    } else {
+      outcomeEl.className = 'outcome denied';
+      outcomeEl.textContent = '⏱ Timed out — blocked';
+    }
+    card.appendChild(outcomeEl);
+
+    // Dismiss button
+    const dismiss = document.createElement('div');
+    dismiss.className = 'dismiss-btn';
+    dismiss.textContent = '✕ Dismiss';
+    dismiss.addEventListener('click', () => {
+      card.remove();
+      pendingConsents.delete(id);
+      if (pendingConsents.size === 0) approvalClear.style.display = 'flex';
+    });
+    card.appendChild(dismiss);
+
+    pendingConsents.set(id, { ...entry, resolved: true });
+  }
+
+  // ══════════════════════════════════════════════
+  // 2. MY DATA + MY AGENTS — Supabase
+  // ══════════════════════════════════════════════
+  async function loadOverview() {
+    const ready = await window.crocboxReady;
+    const sb = window.crocboxSupabase;
+
+    if (!ready || !sb) {
+      document.getElementById('dataOverview').innerHTML = '<div class="text-dim text-sm" style="padding:8px 0;">Connect to opn.li to see your data.</div>';
+      document.getElementById('agentsOverview').innerHTML = '<div class="text-dim text-sm" style="padding:8px 0;">Connect to opn.li to see your agents.</div>';
+      updateAgentConnectCard([]);
+      updateAskSection(null);
+      return;
+    }
+
+    try {
+      const { data: userData } = await sb.auth.getUser();
+      const uid = userData && userData.user ? userData.user.id : null;
+      const userName = userData && userData.user && userData.user.user_metadata ? userData.user.user_metadata.display_name || '' : '';
+      updateAskSection(userName);
+
+      // Query data rooms
+      let dataQ = sb.from('card_instances').select('id, payload, created_at').eq('form_id', DATA_FORM).order('created_at', { ascending: false }).limit(5);
+      if (uid) dataQ = dataQ.eq('member_id', uid);
+      const { data: rooms } = await dataQ;
+
+      // Query agents
+      let agentQ = sb.from('card_instances').select('id, payload, created_at').eq('form_id', ENTITY_FORM).order('created_at', { ascending: false }).limit(5);
+      if (uid) agentQ = agentQ.eq('member_id', uid);
+      const { data: agents } = await agentQ;
+
+      // Render data rooms
+      const dataDiv = document.getElementById('dataOverview');
+      if (!rooms || rooms.length === 0) {
+        dataDiv.innerHTML = '<div class="text-dim text-sm" style="padding:12px 0;">No data rooms yet.</div>';
+      } else {
+        dataDiv.innerHTML = rooms.map(r => {
+          const p = r.payload || {};
+          const name = (p.card && p.card.title) || 'Unnamed';
+          const sens = (p.claims && p.claims.sensitivity) || 'moderate';
+          const sensClass = { low: 'badge-green', moderate: 'badge-yellow', high: 'badge-orange', critical: 'badge-red' }[sens] || 'badge-yellow';
+          return `<div class="ov-item">
+            <span class="ov-icon">📁</span>
+            <div class="ov-info"><div class="ov-name">${esc(name)}</div></div>
+            <span class="badge ${sensClass} ov-badge">${esc(sens)}</span>
+          </div>`;
+        }).join('');
+      }
+
+      // Render agents
+      const agentDiv = document.getElementById('agentsOverview');
+      if (!agents || agents.length === 0) {
+        agentDiv.innerHTML = '<div class="text-dim text-sm" style="padding:12px 0;">No agents registered.</div>';
+        updateAgentConnectCard([]);
+      } else {
+        updateAgentConnectCard(agents);
+        agentDiv.innerHTML = agents.map(a => {
+          const p = a.payload || {};
+          const name = (p.card && p.card.title) || (p.claims && p.claims.items && p.claims.items[0] && p.claims.items[0].resource && p.claims.items[0].resource.display_name) || 'Unnamed';
+          const status = (p.lifecycle && p.lifecycle.status) || 'active';
+          const dotCls = status === 'active' ? 'dot-green' : status === 'suspended' ? 'dot-yellow' : 'dot-dim';
+          return `<div class="ov-item">
+            <span class="ov-icon">🤖</span>
+            <div class="ov-info">
+              <div class="ov-name">${esc(name)}</div>
+              <div class="ov-meta"><span class="dot ${dotCls}"></span> ${esc(status)}</div>
+            </div>
+          </div>`;
+        }).join('');
+      }
+
+    } catch (err) {
+      console.error('[HOME] Overview load failed:', err.message);
+      document.getElementById('dataOverview').innerHTML = '<div class="text-dim text-sm" style="padding:8px 0;">Failed to load.</div>';
+      document.getElementById('agentsOverview').innerHTML = '<div class="text-dim text-sm" style="padding:8px 0;">Failed to load.</div>';
+    }
+  }
+
+  // ══════════════════════════════════════════════
+  // 3. RECENT ACTIVITY — JSONL audit log
+  // ══════════════════════════════════════════════
+  async function loadActivity() {
+    const actDiv = document.getElementById('activityList');
+    try {
+      const res = await fetch('/api/audit');
+      if (!res.ok) throw new Error('Audit API returned ' + res.status);
+      const entries = await res.json();
+
+      if (!entries || entries.length === 0) {
+        actDiv.innerHTML = '<div class="text-dim text-sm" style="padding:12px 0;">No activity recorded yet. Actions will appear here when your agent starts working.</div>';
+        return;
+      }
+
+      // Show last 5
+      const recent = entries.slice(-5).reverse();
+      actDiv.innerHTML = recent.map(e => {
+        const ts = e.timestamp ? new Date(e.timestamp) : null;
+        const time = ts ? ts.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }) : '';
+        const action = e.action || e.actionType || e.action_type || '?';
+        const target = e.target || e.url || '';
+        const result = (e.result || e.decision || '').toLowerCase();
+
+        let icon = '🔹';
+        const al = action.toLowerCase();
+        if (al.includes('email')) icon = '✉️';
+        else if (al.includes('api') || al.includes('http')) icon = '🌐';
+        else if (al.includes('shell') || al.includes('exec')) icon = '💻';
+        else if (al.includes('file') || al.includes('read') || al.includes('write')) icon = '📄';
+        else if (al.includes('safe')) icon = '✅';
+
+        let resultClass = 'act-allowed';
+        let resultLabel = result;
+        if (result.includes('denied') || result.includes('blocked')) { resultClass = 'act-denied'; resultLabel = 'Denied'; }
+        else if (result.includes('allowed') || result.includes('pass')) { resultClass = 'act-allowed'; resultLabel = 'Allowed'; }
+        else if (result.includes('intercepted') || result.includes('pending')) { resultClass = 'act-intercepted'; resultLabel = 'Intercepted'; }
+
+        return `<div class="act-item">
+          <span class="act-time">${esc(time)}</span>
+          <span class="act-icon">${icon}</span>
+          <span class="act-desc">${esc(action)} → ${esc(target)}</span>
+          <span class="act-result ${resultClass}">${esc(resultLabel)}</span>
+        </div>`;
+      }).join('');
+
+    } catch (err) {
+      actDiv.innerHTML = '<div class="text-dim text-sm" style="padding:12px 0;">No activity log found. Start the CARD Proxy to begin logging.</div>';
+    }
+  }
+
+  // ══════════════════════════════════════════════
+  // 4. TRUST SCORE — Skill scanner summary
+  // ══════════════════════════════════════════════
+  async function loadTrustScore() {
+    const scoreNum = document.getElementById('trustScoreNum');
+    const scoreBadge = document.getElementById('trustScoreBadge');
+    const trustBar = document.getElementById('trustBar');
+    const trustLabel = document.getElementById('trustLabel');
+
+    try {
+      // Check test skills as a proxy for installed skills
+      const res = await fetch('/api/scan/test/safe');
+      if (!res.ok) throw new Error('Scanner not available');
+      const result = await res.json();
+
+      const score = result.score || 100;
+      const classification = result.classification || 'GREEN';
+
+      scoreNum.textContent = score + '/100';
+
+      const colorMap = { GREEN: 'var(--green)', YELLOW: 'var(--yellow)', RED: 'var(--red)', BLACK: 'var(--red)' };
+      const badgeMap = { GREEN: 'badge-green', YELLOW: 'badge-yellow', RED: 'badge-red', BLACK: 'badge-red' };
+
+      scoreBadge.className = 'badge ' + (badgeMap[classification] || 'badge-green');
+      scoreBadge.textContent = classification;
+      trustBar.style.width = score + '%';
+      trustBar.style.background = colorMap[classification] || 'var(--green)';
+      trustLabel.textContent = '0 warnings';
+
+    } catch {
+      scoreNum.textContent = '—';
+      scoreBadge.className = 'badge badge-dim';
+      scoreBadge.textContent = 'N/A';
+      trustLabel.textContent = 'No skills scanned yet';
+    }
+  }
+
+  // ── Helpers ────────────────────────────────
+  function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+  // ── Init ───────────────────────────────────
+  connectWS();
+  loadOverview();
+  loadActivity();
+  loadTrustScore();
+
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CROCbox — Skill Scanner</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0c0e11;
+    --surface:   #151820;
+    --surface-2: #1c2029;
+    --border:    #2a2e38;
+    --text:      #d4d7de;
+    --text-dim:  #7a8094;
+    --accent:    #4ec9b0;
+    --accent-dim:#2a7a6a;
+    --red:       #e05252;
+    --red-dim:   #5c2222;
+    --yellow:    #d9a64e;
+    --yellow-dim:#5c4a22;
+    --blue:      #5b9bd5;
+    --green:     #4ec9b0;
+    --black-class: #e05252;
+    --mono:      'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    --sans:      'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --radius:    6px;
+  }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  .shell { max-width: 820px; margin: 0 auto; padding: 24px 20px 48px; }
+
+  /* ── Header ─────────────────────────────────────── */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding-bottom: 20px; border-bottom: 1px solid var(--border); margin-bottom: 24px;
+  }
+  header .brand { display: flex; align-items: center; gap: 12px; }
+  header .brand .logo {
+    width: 28px; height: 28px; background: var(--accent); border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; color: var(--bg); letter-spacing: -0.5px;
+  }
+  header .brand h1 { font-size: 16px; font-weight: 600; color: var(--text); letter-spacing: -0.3px; }
+  header .brand h1 span { color: var(--text-dim); font-weight: 400; margin-left: 6px; }
+  header nav { display: flex; gap: 8px; }
+  header nav a {
+    font-size: 13px; color: var(--text-dim); text-decoration: none;
+    padding: 6px 12px; border-radius: var(--radius); transition: background 0.15s, color 0.15s;
+  }
+  header nav a:hover { background: var(--surface-2); color: var(--text); }
+  header nav a.active { background: var(--surface-2); color: var(--accent); }
+
+  /* ── Scan Input ─────────────────────────────────── */
+  .scan-input-area {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 20px;
+  }
+
+  .scan-input-area label {
+    display: block; font-size: 13px; color: var(--text-dim);
+    margin-bottom: 8px; font-weight: 500;
+  }
+
+  .scan-row {
+    display: flex; gap: 8px; margin-bottom: 16px;
+  }
+
+  .scan-row input {
+    flex: 1; padding: 10px 14px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius);
+    color: var(--text); font-size: 14px; font-family: var(--mono); outline: none;
+    transition: border-color 0.15s;
+  }
+  .scan-row input:focus { border-color: var(--accent-dim); }
+  .scan-row input::placeholder { color: var(--text-dim); font-family: var(--sans); }
+
+  .btn {
+    padding: 10px 18px; background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: var(--radius); color: var(--text); font-size: 13px;
+    font-family: var(--sans); cursor: pointer; outline: none;
+    transition: border-color 0.15s, background 0.15s; white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--accent-dim); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  .btn-accent { background: var(--accent-dim); border-color: var(--accent-dim); color: var(--accent); }
+  .btn-accent:hover { background: var(--accent); color: var(--bg); }
+
+  .test-btns {
+    display: flex; gap: 8px; flex-wrap: wrap;
+  }
+  .test-btns .label { font-size: 12px; color: var(--text-dim); margin-right: 4px; line-height: 34px; }
+
+  .btn-safe { border-color: #1a5c40; color: var(--green); }
+  .btn-safe:hover { background: #1a5c40; }
+  .btn-malware { border-color: #5c2222; color: var(--red); }
+  .btn-malware:hover { background: #5c2222; }
+  .btn-risky { border-color: #5c4a22; color: var(--yellow); }
+  .btn-risky:hover { background: #5c4a22; }
+
+  /* ── Loading state ──────────────────────────────── */
+  .scanning-msg {
+    display: none; text-align: center; padding: 32px;
+    color: var(--text-dim); font-size: 14px;
+  }
+  .scanning-msg .spinner {
+    display: inline-block; width: 20px; height: 20px;
+    border: 2px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin 0.8s linear infinite; margin-bottom: 10px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Result Card ────────────────────────────────── */
+  .result-card {
+    display: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+
+  .result-card.visible { display: block; }
+
+  .result-header {
+    padding: 20px 24px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 16px;
+  }
+  .result-header.green  { background: #0d2118; border-bottom: 2px solid #1a5c40; }
+  .result-header.yellow { background: #211d0d; border-bottom: 2px solid #7a6322; }
+  .result-header.red    { background: #210d0d; border-bottom: 2px solid #7a2222; }
+  .result-header.black  { background: #1a0a0a; border-bottom: 2px solid var(--red); }
+
+  .result-name {
+    font-size: 18px; font-weight: 600; color: var(--text);
+  }
+  .result-name .version { font-weight: 400; color: var(--text-dim); font-size: 14px; margin-left: 6px; }
+
+  .score-block { text-align: right; }
+  .score-number {
+    font-size: 36px; font-weight: 700; font-family: var(--mono); line-height: 1;
+  }
+  .score-number.green  { color: var(--green); }
+  .score-number.yellow { color: var(--yellow); }
+  .score-number.red    { color: var(--red); }
+  .score-number.black  { color: var(--red); }
+
+  .score-label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 2px; }
+  .score-label.green  { color: var(--green); }
+  .score-label.yellow { color: var(--yellow); }
+  .score-label.red    { color: var(--red); }
+  .score-label.black  { color: var(--red); font-weight: 700; }
+
+  .score-bar {
+    height: 6px; border-radius: 3px; background: var(--surface-2);
+    margin: 0 24px; overflow: hidden;
+  }
+  .score-bar-fill {
+    height: 100%; border-radius: 3px; transition: width 0.6s ease;
+  }
+  .score-bar-fill.green  { background: var(--green); }
+  .score-bar-fill.yellow { background: var(--yellow); }
+  .score-bar-fill.red    { background: var(--red); }
+  .score-bar-fill.black  { background: var(--red); width: 100% !important; }
+
+  /* ── Findings list ──────────────────────────────── */
+  .findings-list { padding: 16px 24px 20px; }
+
+  .finding-row {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 0; border-bottom: 1px solid var(--border);
+    font-size: 13px;
+  }
+  .finding-row:last-child { border-bottom: none; }
+
+  .finding-icon {
+    width: 22px; height: 22px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; flex-shrink: 0; margin-top: 1px;
+  }
+  .finding-icon.pass    { background: #122b22; color: var(--green); }
+  .finding-icon.warn    { background: var(--yellow-dim); color: var(--yellow); }
+  .finding-icon.fail    { background: var(--red-dim); color: var(--red); }
+
+  .finding-text { flex: 1; }
+  .finding-label { font-weight: 500; color: var(--text); }
+  .finding-detail { color: var(--text-dim); font-size: 12px; margin-top: 2px; }
+  .finding-target { font-family: var(--mono); color: var(--yellow); font-size: 12px; }
+
+  /* ── Blocked banner ─────────────────────────────── */
+  .blocked-banner {
+    display: none;
+    background: var(--red-dim); border: 1px solid #8b3333; border-radius: var(--radius);
+    padding: 14px 20px; margin: 16px 24px; font-size: 14px; font-weight: 600;
+    color: var(--red); text-align: center;
+  }
+  .blocked-banner.visible { display: block; }
+
+  /* ── Action buttons ─────────────────────────────── */
+  .result-actions {
+    display: flex; gap: 8px; padding: 0 24px 20px;
+  }
+  .result-actions .btn { flex: 1; text-align: center; padding: 12px; font-size: 14px; font-weight: 500; }
+  .btn-install { background: var(--accent-dim); border-color: var(--accent-dim); color: var(--accent); }
+  .btn-install:hover { background: var(--accent); color: var(--bg); }
+  .btn-install:disabled { background: var(--surface); border-color: var(--border); color: var(--text-dim); }
+
+  /* ── Meta info ──────────────────────────────────── */
+  .scan-meta {
+    padding: 12px 24px; background: var(--surface); font-size: 12px; color: var(--text-dim);
+    display: flex; gap: 16px; flex-wrap: wrap;
+    font-family: var(--mono);
+  }
+
+  /* ── Error state ────────────────────────────────── */
+  .error-msg {
+    display: none; text-align: center; padding: 24px;
+    color: var(--red); font-size: 14px;
+    background: var(--red-dim); border: 1px solid #5c2222; border-radius: var(--radius);
+  }
+  .error-msg.visible { display: block; }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header>
+    <div class="brand">
+      <div class="logo">C</div>
+      <h1>CROCbox <span>Skill Scanner</span></h1>
+    </div>
+    <nav>
+      <a href="/">Consent</a>
+      <a href="/audit">Audit Log</a>
+      <a href="/scan" class="active">Skill Scanner</a>
+    </nav>
+  </header>
+
+  <!-- Scan Input -->
+  <div class="scan-input-area">
+    <label>Scan an OpenClaw skill before installing it</label>
+    <div class="scan-row">
+      <input type="text" id="skillPath" placeholder="/path/to/skill/directory" autocomplete="off" data-1p-ignore />
+      <button class="btn btn-accent" id="btnScan">Scan</button>
+    </div>
+    <div class="test-btns">
+      <span class="label">Test skills:</span>
+      <button class="btn btn-safe" data-test="safe">Calculator (safe)</button>
+      <button class="btn btn-risky" data-test="risky">Email Assistant (risky)</button>
+      <button class="btn btn-malware" data-test="malware">System Helper (malware)</button>
+    </div>
+  </div>
+
+  <!-- Scanning indicator -->
+  <div class="scanning-msg" id="scanningMsg">
+    <div class="spinner"></div>
+    <div>Scanning skill…</div>
+  </div>
+
+  <!-- Error message -->
+  <div class="error-msg" id="errorMsg"></div>
+
+  <!-- Result Card -->
+  <div class="result-card" id="resultCard">
+    <div class="result-header" id="resultHeader">
+      <div>
+        <div class="result-name" id="resultName"></div>
+      </div>
+      <div class="score-block">
+        <div class="score-number" id="scoreNumber"></div>
+        <div class="score-label" id="scoreLabel"></div>
+      </div>
+    </div>
+
+    <div class="score-bar">
+      <div class="score-bar-fill" id="scoreBarFill"></div>
+    </div>
+
+    <div class="blocked-banner" id="blockedBanner">
+      BLOCKED — This skill cannot be installed. Known malware detected.
+    </div>
+
+    <div class="findings-list" id="findingsList"></div>
+
+    <div class="result-actions" id="resultActions">
+      <button class="btn btn-install" id="btnInstall">Install</button>
+      <button class="btn" id="btnDetails">View Details</button>
+      <button class="btn" id="btnCancel">Cancel</button>
+    </div>
+
+    <div class="scan-meta" id="scanMeta"></div>
+  </div>
+
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  const $path       = document.getElementById('skillPath');
+  const $btnScan    = document.getElementById('btnScan');
+  const $scanning   = document.getElementById('scanningMsg');
+  const $error      = document.getElementById('errorMsg');
+  const $card       = document.getElementById('resultCard');
+  const $header     = document.getElementById('resultHeader');
+  const $name       = document.getElementById('resultName');
+  const $scoreNum   = document.getElementById('scoreNumber');
+  const $scoreLbl   = document.getElementById('scoreLabel');
+  const $barFill    = document.getElementById('scoreBarFill');
+  const $blocked    = document.getElementById('blockedBanner');
+  const $findings   = document.getElementById('findingsList');
+  const $actions    = document.getElementById('resultActions');
+  const $install    = document.getElementById('btnInstall');
+  const $meta       = document.getElementById('scanMeta');
+
+  // ── Scan by path ──────────────────────────────────
+  $btnScan.addEventListener('click', () => {
+    const p = $path.value.trim();
+    if (!p) return;
+    runScan('/api/scan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: p }) });
+  });
+
+  $path.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') $btnScan.click();
+  });
+
+  // ── Test skill buttons ────────────────────────────
+  document.querySelectorAll('[data-test]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const type = btn.dataset.test;
+      runScan('/api/scan/test/' + type);
+    });
+  });
+
+  // ── Run scan ──────────────────────────────────────
+  async function runScan(url, opts) {
+    $card.classList.remove('visible');
+    $error.classList.remove('visible');
+    $scanning.style.display = 'block';
+
+    try {
+      const res = await fetch(url, opts || {});
+      const data = await res.json();
+      $scanning.style.display = 'none';
+
+      if (data.error) {
+        $error.textContent = data.error;
+        $error.classList.add('visible');
+        return;
+      }
+
+      renderResult(data);
+    } catch (err) {
+      $scanning.style.display = 'none';
+      $error.textContent = 'Scan failed: ' + err.message;
+      $error.classList.add('visible');
+    }
+  }
+
+  // ── Render result card ────────────────────────────
+  function renderResult(data) {
+    const cls = data.classification; // green, yellow, red, black
+
+    // Header
+    $header.className = 'result-header ' + cls;
+    $name.innerHTML = esc(data.skillName);
+
+    // Score
+    $scoreNum.textContent = data.score;
+    $scoreNum.className = 'score-number ' + cls;
+
+    const classLabels = {
+      green: 'GREEN — Low Risk',
+      yellow: 'YELLOW — Medium Risk',
+      red: 'RED — High Risk',
+      black: 'BLACK — Malware',
+    };
+    $scoreLbl.textContent = classLabels[cls] || cls.toUpperCase();
+    $scoreLbl.className = 'score-label ' + cls;
+
+    // Score bar
+    $barFill.className = 'score-bar-fill ' + cls;
+    $barFill.style.width = data.score + '%';
+
+    // Blocked banner
+    if (data.blocked) {
+      $blocked.classList.add('visible');
+    } else {
+      $blocked.classList.remove('visible');
+    }
+
+    // Findings
+    renderFindings(data.summary, data.findings);
+
+    // Actions
+    if (data.blocked) {
+      $install.textContent = 'BLOCKED — Cannot Install';
+      $install.disabled = true;
+    } else {
+      $install.textContent = 'Install';
+      $install.disabled = false;
+    }
+
+    // Meta
+    $meta.innerHTML = [
+      `${data.totalFiles} file${data.totalFiles !== 1 ? 's' : ''} scanned`,
+      `${data.totalLines.toLocaleString()} lines`,
+      `${data.scanTimeMs}ms`,
+    ].join('<span style="color:var(--border)">  ·  </span>');
+
+    $card.classList.add('visible');
+  }
+
+  // ── Render findings ───────────────────────────────
+  function renderFindings(summary, findings) {
+    let html = '';
+
+    for (const cat of summary) {
+      const iconClass = !cat.found ? 'pass' : (cat.category === 'malware' ? 'fail' : 'warn');
+      const icon = cat.found ? (cat.category === 'malware' ? '✗' : '⚠') : '✓';
+
+      html += `<div class="finding-row">
+        <div class="finding-icon ${iconClass}">${icon}</div>
+        <div class="finding-text">
+          <div class="finding-label">${cat.found ? cat.status : 'No'} ${esc(cat.label)}</div>`;
+
+      // Show details for found items
+      if (cat.found) {
+        const catFindings = findings.filter(f => f.category === cat.category);
+        for (const f of catFindings) {
+          html += `<div class="finding-detail">${esc(f.description)}`;
+          if (f.target) {
+            html += ` <span class="finding-target">${esc(f.target)}</span>`;
+          }
+          html += '</div>';
+        }
+      }
+
+      html += '</div></div>';
+    }
+
+    $findings.innerHTML = html;
+  }
+
+  function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+})();
+</script>
+</body>
+</html>

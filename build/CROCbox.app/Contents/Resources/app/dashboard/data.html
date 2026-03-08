@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CROCbox — My Data</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .room-list { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 640px) { .room-list { grid-template-columns: 1fr; } }
+
+  .room-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 18px 22px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .room-card:hover { border-color: var(--accent-dim); }
+
+  .room-icon { font-size: 24px; margin-bottom: 10px; }
+  .room-name { font-size: 16px; font-weight: 600; margin-bottom: 4px; }
+  .room-meta { font-size: 12px; color: var(--text-dim); display: flex; gap: 10px; flex-wrap: wrap; }
+
+  .sens-badge { display: inline-block; padding: 2px 8px; border-radius: 3px; font-size: 11px; font-weight: 600; }
+  .sens-low      { background: var(--accent-bg); color: var(--green); }
+  .sens-moderate { background: var(--yellow-bg); color: var(--yellow); }
+  .sens-high     { background: #2a1f12; color: var(--orange); }
+  .sens-critical { background: var(--red-bg); color: var(--red); }
+
+  .rule-list { margin-top: 10px; font-size: 12px; color: var(--text-dim); }
+  .rule-list .rule { padding: 2px 0; }
+  .rule-list .rule .icon { margin-right: 4px; }
+
+  /* ── Detail panel ───────────────────────── */
+  .detail-panel {
+    display: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    margin-bottom: 16px;
+  }
+  .detail-panel.visible { display: block; }
+  .detail-panel h3 { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+  .detail-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+
+  /* ── Add modal ──────────────────────────── */
+  .modal-backdrop {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6); z-index: 100;
+    align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal-backdrop.visible { display: flex; }
+  .modal {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius-lg); padding: 28px;
+    width: 100%; max-width: 480px; max-height: 90vh; overflow-y: auto;
+  }
+  .modal h2 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .modal .subtitle { color: var(--text-dim); font-size: 14px; margin-bottom: 22px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+
+  .sensitivity-grid { display: flex; flex-direction: column; gap: 8px; }
+  .sens-option {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 14px; background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: var(--radius);
+    cursor: pointer; font-size: 14px; transition: border-color 0.15s;
+  }
+  .sens-option:hover { border-color: var(--border-l); }
+  .sens-option.selected { border-color: var(--accent); background: var(--accent-bg); }
+  .sens-option input[type="radio"] { display: none; }
+  .sens-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+  .sens-option.s-low .sens-dot { background: var(--green); }
+  .sens-option.s-moderate .sens-dot { background: var(--yellow); }
+  .sens-option.s-high .sens-dot { background: var(--orange); }
+  .sens-option.s-critical .sens-dot { background: var(--red); }
+
+  .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .page-header h2 { font-size: 20px; font-weight: 600; }
+</style>
+</head>
+<body data-page="data">
+<div class="shell">
+
+  <div class="page-header" id="pageHeader" style="display:none;">
+    <h2>My Data</h2>
+    <button class="btn btn-accent" id="btnAddRoom">+ New Data Room</button>
+  </div>
+
+  <div class="empty" id="loading"><div class="spinner"></div><p class="mt-8">Loading data rooms…</p></div>
+
+  <div class="empty hidden" id="emptyState">
+    <div class="icon">📁</div>
+    <p>You haven't created any data rooms yet.</p>
+    <p class="text-sm text-dim mt-8">A Data Room is like a locked filing cabinet. You decide which agents get a key.</p>
+    <button class="btn btn-accent mt-16" id="btnAddRoomEmpty">+ Create Your First Data Room</button>
+  </div>
+
+  <div class="room-list hidden" id="roomList"></div>
+
+  <div class="detail-panel" id="detailPanel">
+    <div class="flex-between mb-16">
+      <h3 id="detailName">Data Room</h3>
+      <button class="btn btn-sm btn-ghost" id="btnCloseDetail">✕ Close</button>
+    </div>
+    <div id="detailContent"></div>
+    <div class="detail-actions">
+      <button class="btn btn-sm btn-red" id="btnDeleteRoom">Delete Data Room</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Add Data Room Modal ══════════════ -->
+<div class="modal-backdrop" id="addModal">
+  <div class="modal">
+    <h2>Create a Data Room</h2>
+    <p class="subtitle">A container for information you want to control.</p>
+    <div id="addError" style="display:none;background:var(--red-bg);border:1px solid var(--red-dim);color:var(--red);padding:10px 14px;border-radius:var(--radius);font-size:13px;margin-bottom:14px;"></div>
+
+    <div class="field">
+      <label>Name</label>
+      <input type="text" id="roomName" placeholder="e.g. My Health Records" autocomplete="off" data-1p-ignore />
+    </div>
+
+    <div class="field">
+      <label>How sensitive is this data?</label>
+      <div class="sensitivity-grid" id="sensGrid">
+        <div class="sens-option s-low" data-val="low"><div class="sens-dot"></div><span>Low — General info</span></div>
+        <div class="sens-option s-moderate selected" data-val="moderate"><div class="sens-dot"></div><span>Moderate — Personal details</span></div>
+        <div class="sens-option s-high" data-val="high"><div class="sens-dot"></div><span>High — Medical, financial</span></div>
+        <div class="sens-option s-critical" data-val="critical"><div class="sens-dot"></div><span>Critical — Legal, identity</span></div>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>Default rules</label>
+      <div class="check-list">
+        <label class="check-item"><input type="checkbox" id="ruleNoStore" checked> Agents cannot store copies</label>
+        <label class="check-item"><input type="checkbox" id="ruleNoTrain" checked> Agents cannot use to train AI</label>
+        <label class="check-item"><input type="checkbox" id="ruleNoShare" checked> Agents cannot share with others</label>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelAdd">Cancel</button>
+      <button class="btn btn-accent" id="btnSubmitAdd">Create Data Room</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/shared/supabase.js"></script>
+<script src="/shared/auth.js"></script>
+<script src="/shared/nav.js"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  const DATA_FORM_ID = '147a8e87-46f6-4145-b27e-87abbf8cdb77';
+
+  let rooms = [];
+  let selectedRoom = null;
+  let selectedSensitivity = 'moderate';
+
+  const $loading = document.getElementById('loading');
+  const $empty   = document.getElementById('emptyState');
+  const $list    = document.getElementById('roomList');
+  const $header  = document.getElementById('pageHeader');
+  const $detail  = document.getElementById('detailPanel');
+  const $modal   = document.getElementById('addModal');
+
+  async function loadRooms() {
+    const ready = await window.crocboxReady;
+    const sb = window.crocboxSupabase;
+    $loading.classList.add('hidden');
+    $header.style.display = 'flex';
+
+    if (!ready || !sb) { $empty.classList.remove('hidden'); return; }
+
+    try {
+      const { data: user } = await sb.auth.getUser();
+      let query = sb.from('card_instances').select('*').eq('form_id', DATA_FORM_ID).order('created_at', { ascending: false });
+      if (user && user.user) query = query.eq('member_id', user.user.id);
+
+      const { data, error } = await query.limit(50);
+      if (error) throw error;
+
+      rooms = data || [];
+      if (rooms.length === 0) { $empty.classList.remove('hidden'); }
+      else { renderRooms(); $list.classList.remove('hidden'); }
+    } catch (err) {
+      console.error('[DATA] Load failed:', err.message);
+      $empty.classList.remove('hidden');
+    }
+  }
+
+  function renderRooms() {
+    $list.innerHTML = rooms.map((r, i) => {
+      const p = r.payload || {};
+      const claims = p.claims || {};
+      const items = claims.items || [];
+      const item = items[0] || {};
+      const name = (p.card && p.card.title) || (item.resource && item.resource.display_name) || item.name || p.name || 'Unnamed Room';
+      const sens = (p.claims && p.claims.sensitivity) || item.sensitivity || p.sensitivity || 'moderate';
+      const policyProhibitions = (p.policy && p.policy.prohibitions) || [];
+      const prohibitions = policyProhibitions.map(pr => pr.code || pr).filter(Boolean);
+      const created = r.created_at ? new Date(r.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+
+      const sensClass = { low: 'sens-low', moderate: 'sens-moderate', high: 'sens-high', critical: 'sens-critical' }[sens] || 'sens-moderate';
+
+      let rulesHtml = '';
+      if (prohibitions.includes('no_storage') || prohibitions.includes('no_retention')) rulesHtml += '<div class="rule"><span class="icon">🔒</span>Cannot store</div>';
+      if (prohibitions.includes('no_training')) rulesHtml += '<div class="rule"><span class="icon">🚫</span>Cannot train</div>';
+      if (prohibitions.includes('no_sharing') || prohibitions.includes('no_onward_sharing')) rulesHtml += '<div class="rule"><span class="icon">🔐</span>Cannot share</div>';
+
+      return `<div class="room-card" data-idx="${i}">
+        <div class="room-icon">📁</div>
+        <div class="room-name">${esc(name)}</div>
+        <div class="room-meta">
+          <span class="sens-badge ${sensClass}">${esc(sens)}</span>
+          <span>Created ${esc(created)}</span>
+        </div>
+        ${rulesHtml ? '<div class="rule-list">' + rulesHtml + '</div>' : ''}
+      </div>`;
+    }).join('');
+  }
+
+  // Click → detail
+  $list.addEventListener('click', (e) => {
+    const card = e.target.closest('.room-card');
+    if (!card) return;
+    const idx = parseInt(card.dataset.idx);
+    if (isNaN(idx) || !rooms[idx]) return;
+    showDetail(rooms[idx]);
+  });
+
+  function showDetail(room) {
+    selectedRoom = room;
+    const p = room.payload || {};
+    const items = (p.claims || {}).items || [];
+    const item = items[0] || {};
+    const name = (p.card && p.card.title) || (item.resource && item.resource.display_name) || item.name || p.name || 'Unnamed Room';
+    const sens = (p.claims && p.claims.sensitivity) || item.sensitivity || p.sensitivity || '—';
+    const policyProhibitions = (p.policy && p.policy.prohibitions) || [];
+    const prohibitions = policyProhibitions.map(pr => pr.code || pr).filter(Boolean);
+    const created = room.created_at ? new Date(room.created_at).toLocaleString() : '—';
+
+    document.getElementById('detailName').textContent = name;
+
+    let rules = prohibitions.map(r => {
+      if (r === 'no_storage' || r === 'no_retention') return 'Cannot store copies';
+      if (r === 'no_training') return 'Cannot use to train AI';
+      if (r === 'no_sharing' || r === 'no_onward_sharing') return 'Cannot share with others';
+      return r;
+    }).join(', ') || 'No restrictions';
+
+    document.getElementById('detailContent').innerHTML = `
+      <div style="display:grid;grid-template-columns:120px 1fr;gap:8px 16px;font-size:13px;">
+        <span class="text-dim">Sensitivity</span><span>${esc(sens)}</span>
+        <span class="text-dim">Rules</span><span>${esc(rules)}</span>
+        <span class="text-dim">Created</span><span>${esc(created)}</span>
+        <span class="text-dim">Room ID</span><span class="text-mono text-sm">${esc(String(room.id).slice(0, 20))}…</span>
+      </div>
+    `;
+    $detail.classList.add('visible');
+  }
+
+  document.getElementById('btnCloseDetail').addEventListener('click', () => {
+    $detail.classList.remove('visible');
+    selectedRoom = null;
+  });
+
+  // Delete room
+  document.getElementById('btnDeleteRoom').addEventListener('click', async () => {
+    if (!selectedRoom) return;
+    if (!confirm('Delete this data room? Any active permissions will be revoked. This cannot be undone.')) return;
+    const sb = window.crocboxSupabase;
+    if (!sb) return;
+    try {
+      const { error } = await sb.from('card_instances').delete().eq('id', selectedRoom.id);
+      if (error) throw error;
+      $detail.classList.remove('visible');
+      selectedRoom = null;
+      $list.classList.add('hidden');
+      $loading.classList.remove('hidden');
+      loadRooms();
+    } catch (err) {
+      alert('Delete failed: ' + err.message);
+    }
+  });
+
+  // ── Add Data Room Modal ────────────────────────
+  document.getElementById('btnAddRoom').addEventListener('click', openModal);
+  document.getElementById('btnAddRoomEmpty').addEventListener('click', openModal);
+
+  function openModal() {
+    document.getElementById('roomName').value = '';
+    document.getElementById('addError').style.display = 'none';
+    selectedSensitivity = 'moderate';
+    document.querySelectorAll('#sensGrid .sens-option').forEach(o => o.classList.remove('selected'));
+    document.querySelector('#sensGrid .s-moderate').classList.add('selected');
+    $modal.classList.add('visible');
+  }
+
+  document.getElementById('btnCancelAdd').addEventListener('click', () => $modal.classList.remove('visible'));
+
+  document.querySelectorAll('#sensGrid .sens-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      document.querySelectorAll('#sensGrid .sens-option').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+      selectedSensitivity = opt.dataset.val;
+    });
+  });
+
+  document.getElementById('btnSubmitAdd').addEventListener('click', async () => {
+    const name = document.getElementById('roomName').value.trim();
+    const errEl = document.getElementById('addError');
+    errEl.style.display = 'none';
+
+    if (!name) { errEl.textContent = 'Give your data room a name.'; errEl.style.display = 'block'; return; }
+
+    const btn = document.getElementById('btnSubmitAdd');
+    btn.disabled = true; btn.textContent = 'Creating…';
+
+    const prohibitions = [];
+    if (document.getElementById('ruleNoStore').checked) prohibitions.push('no_storage');
+    if (document.getElementById('ruleNoTrain').checked) prohibitions.push('no_training');
+    if (document.getElementById('ruleNoShare').checked) prohibitions.push('no_sharing');
+
+    try {
+      const sb = window.crocboxSupabase;
+      if (!sb) throw new Error('Supabase not initialized.');
+
+      const { error } = await sb.rpc('create_card_instance', {
+        p_form_id: DATA_FORM_ID,
+        p_payload: {
+          type: 'data',
+          name: name,
+          sensitivity: selectedSensitivity,
+          claims: {
+            items: [{
+              id: 'urn:uuid:' + crypto.randomUUID(),
+              type: 'data_room',
+              name: name,
+              sensitivity: selectedSensitivity,
+              prohibitions: prohibitions
+            }]
+          },
+          lifecycle: { status: 'active' }
+        }
+      });
+
+      if (error) throw error;
+
+      $modal.classList.remove('visible');
+      $empty.classList.add('hidden');
+      $list.classList.add('hidden');
+      $loading.classList.remove('hidden');
+      loadRooms();
+    } catch (err) {
+      errEl.textContent = err.message || 'Creation failed.';
+      errEl.style.display = 'block';
+    }
+
+    btn.disabled = false; btn.textContent = 'Create Data Room';
+  });
+
+  function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+  loadRooms();
+})();
+</script>
+</body>
+</html>

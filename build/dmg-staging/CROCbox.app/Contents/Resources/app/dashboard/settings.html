@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CROCbox — Settings</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .settings-section {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 22px 24px;
+    margin-bottom: 16px;
+  }
+  .settings-section h3 {
+    font-size: 16px;
+    font-weight: 600;
+    margin-bottom: 16px;
+  }
+
+  .setting-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 14px;
+  }
+  .setting-row:last-child { border-bottom: none; }
+  .setting-label { color: var(--text-dim); font-size: 13px; min-width: 140px; }
+  .setting-value { color: var(--text); flex: 1; min-width: 0; word-break: break-all; }
+
+  .key-display {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .key-masked {
+    font-family: var(--mono);
+    font-size: 13px;
+    background: var(--surface-2);
+    padding: 4px 10px;
+    border-radius: var(--radius);
+    color: var(--text-dim);
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .key-toggle {
+    font-size: 12px;
+    color: var(--accent);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .key-toggle:hover { text-decoration: underline; }
+
+  .provider-current {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 12px;
+  }
+  .provider-icon { font-size: 18px; }
+  .provider-name { font-size: 14px; font-weight: 500; }
+  .provider-status { font-size: 12px; margin-left: auto; }
+
+  .defaults-grid { display: flex; flex-direction: column; gap: 12px; }
+  .default-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 14px;
+  }
+
+  /* ── Advanced section ───────────────────── */
+  .advanced-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    padding: 14px 0;
+    font-size: 14px;
+    color: var(--text-dim);
+  }
+  .advanced-toggle:hover { color: var(--text); }
+  .advanced-toggle .arrow { transition: transform 0.2s; }
+  .advanced-toggle.open .arrow { transform: rotate(90deg); }
+
+  .advanced-content {
+    display: none;
+    padding-top: 8px;
+  }
+  .advanced-content.visible { display: block; }
+
+  .adv-item {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border);
+    font-size: 13px;
+    color: var(--text-dim);
+  }
+  .adv-item:last-child { border-bottom: none; }
+  .adv-item .label { flex: 1; }
+  .adv-item a { color: var(--accent); text-decoration: none; font-size: 12px; }
+  .adv-item a:hover { text-decoration: underline; }
+
+  .danger-zone {
+    border-color: var(--red-dim);
+    margin-top: 24px;
+  }
+  .danger-zone h3 { color: var(--red); }
+
+  .page-title { font-size: 20px; font-weight: 600; margin-bottom: 20px; }
+</style>
+</head>
+<body data-page="settings">
+<div class="shell">
+
+  <h2 class="page-title">Settings</h2>
+
+  <!-- ═══ 9a: My Account ═════════════════════ -->
+  <div class="settings-section">
+    <h3>My Account</h3>
+    <div class="setting-row">
+      <span class="setting-label">Name</span>
+      <span class="setting-value" id="userName">—</span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Email</span>
+      <span class="setting-value" id="userEmail">—</span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Account tier</span>
+      <span class="setting-value"><span class="badge badge-green">Free</span></span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">VE API key</span>
+      <span class="setting-value">
+        <div class="key-display">
+          <span class="key-masked" id="veKeyDisplay">••••••••••••••••</span>
+          <span class="key-toggle" id="veKeyToggle">Show</span>
+          <span class="key-toggle" id="veKeyCopy">Copy</span>
+        </div>
+      </span>
+    </div>
+    <div style="margin-top:16px;">
+      <button class="btn btn-sm" id="btnSignOut">Sign Out</button>
+    </div>
+  </div>
+
+  <!-- ═══ 9b: AI Service Connection ══════════ -->
+  <div class="settings-section">
+    <h3>AI Service Connection</h3>
+    <div class="provider-current" id="providerCurrent">
+      <span class="provider-icon" id="provIcon">—</span>
+      <span class="provider-name" id="provName">Not connected</span>
+      <span class="provider-status" id="provStatus"></span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">API key</span>
+      <span class="setting-value">
+        <div class="key-display">
+          <span class="key-masked" id="aiKeyDisplay">••••••••••••••••</span>
+          <span class="key-toggle" id="aiKeyToggle">Show</span>
+        </div>
+      </span>
+    </div>
+    <div style="margin-top:12px;">
+      <button class="btn btn-sm" id="btnChangeProvider">Change Provider</button>
+    </div>
+  </div>
+
+  <!-- ═══ 9c: Agent Defaults ═════════════════ -->
+  <div class="settings-section">
+    <h3>Agent Defaults</h3>
+    <p class="text-dim text-sm mb-16">Default rules applied to new permission slips.</p>
+    <div class="defaults-grid">
+      <div class="default-item">
+        <span>Agents cannot store copies of data</span>
+        <label class="toggle"><input type="checkbox" id="defNoStore" checked><span class="slider"></span></label>
+      </div>
+      <div class="default-item">
+        <span>Agents cannot use data to train AI</span>
+        <label class="toggle"><input type="checkbox" id="defNoTrain" checked><span class="slider"></span></label>
+      </div>
+      <div class="default-item">
+        <span>Agents cannot share data with others</span>
+        <label class="toggle"><input type="checkbox" id="defNoShare" checked><span class="slider"></span></label>
+      </div>
+    </div>
+    <div class="setting-row mt-16">
+      <span class="setting-label">Default duration</span>
+      <span class="setting-value">
+        <select id="defDuration" style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px;color:var(--text);font-size:13px;font-family:var(--sans);">
+          <option value="PT1H">1 hour</option>
+          <option value="PT24H" selected>24 hours</option>
+          <option value="P7D">7 days</option>
+          <option value="P30D">30 days</option>
+        </select>
+      </span>
+    </div>
+    <div class="setting-row">
+      <span class="setting-label">Consent timeout</span>
+      <span class="setting-value">
+        <select id="defTimeout" style="background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:6px 10px;color:var(--text);font-size:13px;font-family:var(--sans);">
+          <option value="60000">1 minute</option>
+          <option value="180000">3 minutes</option>
+          <option value="300000" selected>5 minutes</option>
+          <option value="600000">10 minutes</option>
+        </select>
+      </span>
+    </div>
+    <div style="margin-top:12px;">
+      <button class="btn btn-sm btn-accent" id="btnSaveDefaults">Save Defaults</button>
+      <span class="text-sm text-dim" id="saveStatus" style="margin-left:10px;"></span>
+    </div>
+  </div>
+
+  <!-- ═══ 9d: Advanced ═══════════════════════ -->
+  <div class="settings-section">
+    <div class="advanced-toggle" id="advToggle">
+      <span>Advanced (Developer Tools)</span>
+      <span class="arrow">▶</span>
+    </div>
+    <div class="advanced-content" id="advContent">
+      <div class="adv-item">
+        <span class="label">OpenClaw gateway</span>
+        <span id="advGateway" class="text-mono text-sm">127.0.0.1:18789</span>
+        <span id="advGatewayStatus" class="badge badge-dim">Unknown</span>
+      </div>
+      <div class="adv-item">
+        <span class="label">CARD Proxy</span>
+        <span class="text-mono text-sm">127.0.0.1:18790</span>
+        <span id="advProxyStatus" class="badge badge-dim">Unknown</span>
+      </div>
+      <div class="adv-item">
+        <span class="label">Dashboard</span>
+        <span class="text-mono text-sm">127.0.0.1:3000</span>
+        <span class="badge badge-green">Running</span>
+      </div>
+      <div class="adv-item">
+        <span class="label">Supabase instance</span>
+        <span class="text-mono text-sm" id="advSupabaseUrl">—</span>
+      </div>
+      <div class="adv-item">
+        <span class="label">Audit log</span>
+        <a href="/audit">View raw log →</a>
+      </div>
+      <div class="adv-item">
+        <span class="label">Skill scanner</span>
+        <a href="/scan">Open scanner →</a>
+      </div>
+      <div class="adv-item">
+        <span class="label">Agent-safe app</span>
+        <a href="https://biejnguqnejzwmypotez.supabase.co" target="_blank">Open Supabase →</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ Danger Zone ════════════════════════ -->
+  <div class="settings-section danger-zone">
+    <h3>Danger Zone</h3>
+    <p class="text-dim text-sm mb-16">These actions cannot be undone.</p>
+    <button class="btn btn-sm btn-red" id="btnResetWizard">Reset Setup Wizard</button>
+    <span class="text-dim text-sm" style="margin-left:8px;">Re-run the first-time setup</span>
+  </div>
+
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/shared/supabase.js"></script>
+<script src="/shared/auth.js"></script>
+<script src="/shared/nav.js"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  let veKeyRevealed = false;
+  let aiKeyRevealed = false;
+  let configData = {};
+
+  // ── Load account info ──────────────────────
+  async function loadAccount() {
+    const ready = await window.crocboxReady;
+    const sb = window.crocboxSupabase;
+    if (!ready || !sb) return;
+
+    try {
+      const { data } = await sb.auth.getUser();
+      if (data && data.user) {
+        const meta = data.user.user_metadata || {};
+        document.getElementById('userName').textContent = meta.display_name || meta.name || '—';
+        document.getElementById('userEmail').textContent = data.user.email || '—';
+      }
+    } catch {}
+  }
+
+  // ── Load config from server ────────────────
+  async function loadConfig() {
+    try {
+      const res = await fetch('/api/config');
+      configData = await res.json();
+
+      // VE key
+      const veKey = '';  // VE key is server-side only, not exposed via /api/config
+      document.getElementById('veKeyDisplay').textContent = configData.agentId ? maskKey(configData.agentId) : '••••••••••••';
+
+      // Supabase URL
+      document.getElementById('advSupabaseUrl').textContent = configData.supabaseUrl || '—';
+
+      // AI provider from extended config
+      loadAIConfig();
+    } catch {}
+  }
+
+  async function loadAIConfig() {
+    try {
+      const res = await fetch('/api/config/ai');
+      if (!res.ok) return;
+      const ai = await res.json();
+
+      const providers = {
+        anthropic: { icon: '🟣', name: 'Anthropic (Claude) ✨ FREE FOR ALPHA' },
+        openai: { icon: '🟢', name: 'OpenAI (ChatGPT)' },
+        xai: { icon: '⚫', name: 'xAI (Grok)' },
+        deepseek: { icon: '🔵', name: 'DeepSeek' },
+        ollama: { icon: '🖥️', name: 'Local Model (Ollama)' }
+      };
+
+      const prov = providers[ai.provider] || null;
+      if (prov) {
+        document.getElementById('provIcon').textContent = prov.icon;
+        document.getElementById('provName').textContent = prov.name;
+        document.getElementById('provStatus').innerHTML = '<span class="dot dot-green"></span> Connected';
+      }
+      if (ai.apiKey) {
+        document.getElementById('aiKeyDisplay').textContent = maskKey(ai.apiKey);
+        document.getElementById('aiKeyDisplay').dataset.key = ai.apiKey;
+      }
+    } catch {}
+  }
+
+  function maskKey(key) {
+    if (!key || key.length < 8) return '••••••••••••';
+    return key.slice(0, 8) + '•••••••••••' + key.slice(-4);
+  }
+
+  // ── VE Key toggle ──────────────────────────
+  document.getElementById('veKeyToggle').addEventListener('click', () => {
+    const el = document.getElementById('veKeyDisplay');
+    veKeyRevealed = !veKeyRevealed;
+    el.textContent = veKeyRevealed ? (configData.agentId || '—') : maskKey(configData.agentId || '');
+    document.getElementById('veKeyToggle').textContent = veKeyRevealed ? 'Hide' : 'Show';
+  });
+
+  document.getElementById('veKeyCopy').addEventListener('click', () => {
+    const key = configData.agentId || '';
+    navigator.clipboard.writeText(key).then(() => {
+      document.getElementById('veKeyCopy').textContent = 'Copied!';
+      setTimeout(() => { document.getElementById('veKeyCopy').textContent = 'Copy'; }, 2000);
+    });
+  });
+
+  // ── AI Key toggle ──────────────────────────
+  document.getElementById('aiKeyToggle').addEventListener('click', () => {
+    const el = document.getElementById('aiKeyDisplay');
+    aiKeyRevealed = !aiKeyRevealed;
+    const key = el.dataset.key || '';
+    el.textContent = aiKeyRevealed ? key : maskKey(key);
+    document.getElementById('aiKeyToggle').textContent = aiKeyRevealed ? 'Hide' : 'Show';
+  });
+
+  // ── Change Provider ────────────────────────
+  document.getElementById('btnChangeProvider').addEventListener('click', () => {
+    window.location.href = '/first-run.html';
+  });
+
+  // ── Save Defaults ──────────────────────────
+  document.getElementById('btnSaveDefaults').addEventListener('click', async () => {
+    const defaults = {
+      prohibitions: {
+        no_storage: document.getElementById('defNoStore').checked,
+        no_training: document.getElementById('defNoTrain').checked,
+        no_sharing: document.getElementById('defNoShare').checked
+      },
+      duration: document.getElementById('defDuration').value,
+      consentTimeout: parseInt(document.getElementById('defTimeout').value)
+    };
+
+    try {
+      const res = await fetch('/api/config/defaults', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(defaults)
+      });
+      if (res.ok) {
+        document.getElementById('saveStatus').textContent = '✓ Saved';
+        setTimeout(() => { document.getElementById('saveStatus').textContent = ''; }, 2000);
+      }
+    } catch {
+      document.getElementById('saveStatus').textContent = 'Failed to save';
+    }
+  });
+
+  // ── Advanced toggle ────────────────────────
+  document.getElementById('advToggle').addEventListener('click', () => {
+    const toggle = document.getElementById('advToggle');
+    const content = document.getElementById('advContent');
+    toggle.classList.toggle('open');
+    content.classList.toggle('visible');
+
+    // Check proxy status when opened
+    if (content.classList.contains('visible')) {
+      checkProxyStatus();
+    }
+  });
+
+  async function checkProxyStatus() {
+    try {
+      const res = await fetch('http://127.0.0.1:18790/', { mode: 'no-cors', signal: AbortSignal.timeout(2000) });
+      document.getElementById('advProxyStatus').className = 'badge badge-green';
+      document.getElementById('advProxyStatus').textContent = 'Running';
+    } catch {
+      document.getElementById('advProxyStatus').className = 'badge badge-red';
+      document.getElementById('advProxyStatus').textContent = 'Stopped';
+    }
+
+    try {
+      const res = await fetch('http://127.0.0.1:18789/', { mode: 'no-cors', signal: AbortSignal.timeout(2000) });
+      document.getElementById('advGatewayStatus').className = 'badge badge-green';
+      document.getElementById('advGatewayStatus').textContent = 'Running';
+    } catch {
+      document.getElementById('advGatewayStatus').className = 'badge badge-red';
+      document.getElementById('advGatewayStatus').textContent = 'Stopped';
+    }
+  }
+
+  // ── Sign Out ───────────────────────────────
+  document.getElementById('btnSignOut').addEventListener('click', async () => {
+    if (!confirm('Sign out of CROCbox?')) return;
+    const sb = window.crocboxSupabase;
+    if (sb) await sb.auth.signOut();
+    window.location.href = '/first-run.html';
+  });
+
+  // ── Reset Wizard ───────────────────────────
+  document.getElementById('btnResetWizard').addEventListener('click', async () => {
+    if (!confirm('Reset the setup wizard? You will need to go through the first-run setup again.')) return;
+    const sb = window.crocboxSupabase;
+    if (sb) await sb.auth.signOut();
+    window.location.href = '/first-run.html';
+  });
+
+  // ── Init ───────────────────────────────────
+  loadAccount();
+  loadConfig();
+
+})();
+</script>
+</body>
+</html>
