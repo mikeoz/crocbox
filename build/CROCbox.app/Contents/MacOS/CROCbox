@@ -1,0 +1,91 @@
+#!/bin/bash
+MACOS_DIR="$(cd "$(dirname "$0")" && pwd)"
+RESOURCES_DIR="$(dirname "${MACOS_DIR}")/Resources"
+APP_DIR="${RESOURCES_DIR}/app"
+NODE="${RESOURCES_DIR}/node"
+
+SUPPORT_DIR="${HOME}/Library/Application Support/CROCbox"
+LOG_DIR="${SUPPORT_DIR}/logs"
+PID_DIR="${SUPPORT_DIR}/pids"
+ENV_FILE="${SUPPORT_DIR}/.env"
+
+mkdir -p "${SUPPORT_DIR}" "${LOG_DIR}" "${PID_DIR}"
+
+# Create .env on first launch
+if [ ! -f "${ENV_FILE}" ]; then
+  sed "s|SUPPORT_DIR_PLACEHOLDER|${SUPPORT_DIR}|g" \
+    "${APP_DIR}/.env.defaults" > "${ENV_FILE}"
+fi
+
+show_error() {
+  osascript -e "display dialog \"$1\" with title \"CROCbox\" buttons {\"Quit\"} default button \"Quit\" with icon stop"
+  exit 1
+}
+
+port_in_use() { lsof -ti:$1 > /dev/null 2>&1; }
+
+for PORT in 18790 18791 3000; do
+  if port_in_use $PORT; then
+    show_error "CROCbox cannot start: port $PORT is already in use. Please quit any other CROCbox instance and try again."
+  fi
+done
+
+# Load .env
+set -a; source "${ENV_FILE}"; set +a
+export CROCBOX_LOG_DIR="${LOG_DIR}"
+
+# Start CARD Proxy
+cd "${APP_DIR}"
+"${NODE}" -e "require('dotenv').config({path:'${ENV_FILE}'}); const {start}=require('./src/proxy/index.js'); start();" \
+  > "${LOG_DIR}/proxy.log" 2>&1 &
+echo $! > "${PID_DIR}/proxy.pid"
+
+# Wait for proxy (up to 10s)
+for i in $(seq 1 20); do
+  sleep 0.5
+  curl -s http://127.0.0.1:18790/crocbox/health > /dev/null 2>&1 && break
+  if [ $i -eq 20 ]; then
+    show_error "CROCbox could not start. See: ${LOG_DIR}/proxy.log"
+  fi
+done
+
+# Start Gateway
+"${NODE}" "${APP_DIR}/src/gateway/index.js" \
+  > "${LOG_DIR}/gateway.log" 2>&1 &
+echo $! > "${PID_DIR}/gateway.pid"
+
+sleep 1
+
+# Start Dashboard
+"${NODE}" "${APP_DIR}/dashboard/server.js" \
+  > "${LOG_DIR}/dashboard.log" 2>&1 &
+echo $! > "${PID_DIR}/dashboard.pid"
+
+sleep 1
+
+# Open browser
+open "http://127.0.0.1:3000"
+
+# Cleanup on quit
+cleanup() {
+  for SVC in proxy gateway dashboard; do
+    PID_FILE="${PID_DIR}/${SVC}.pid"
+    [ -f "${PID_FILE}" ] && kill $(cat "${PID_FILE}") 2>/dev/null && rm "${PID_FILE}"
+  done
+  exit 0
+}
+trap cleanup SIGTERM SIGINT SIGHUP
+
+# Stay alive and watch services
+while true; do
+  sleep 5
+  for SVC in proxy gateway dashboard; do
+    PID_FILE="${PID_DIR}/${SVC}.pid"
+    if [ -f "${PID_FILE}" ]; then
+      PID=$(cat "${PID_FILE}")
+      if ! kill -0 $PID 2>/dev/null; then
+        show_error "CROCbox service '${SVC}' stopped unexpectedly.\n\nSee: ${LOG_DIR}/${SVC}.log"
+      fi
+    fi
+  done
+done

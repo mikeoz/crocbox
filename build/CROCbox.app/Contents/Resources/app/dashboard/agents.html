@@ -1,0 +1,550 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CROCbox — My AI</title>
+<link rel="stylesheet" href="/shared/style.css">
+<style>
+  .agent-list { display: flex; flex-direction: column; gap: 12px; }
+
+  .agent-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 18px 22px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .agent-card:hover { border-color: var(--accent-dim); }
+
+  .agent-avatar {
+    width: 44px; height: 44px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    flex-shrink: 0;
+  }
+
+  .agent-info { flex: 1; min-width: 0; }
+  .agent-name { font-size: 16px; font-weight: 600; margin-bottom: 2px; }
+  .agent-meta { font-size: 12px; color: var(--text-dim); display: flex; gap: 12px; flex-wrap: wrap; }
+
+  .agent-status { display: flex; align-items: center; gap: 6px; margin-left: auto; flex-shrink: 0; }
+  .agent-status .label { font-size: 12px; color: var(--text-dim); }
+
+  /* ── Detail panel ───────────────────────── */
+  .detail-panel {
+    display: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 24px;
+    margin-bottom: 16px;
+  }
+  .detail-panel.visible { display: block; }
+  .detail-panel h3 { font-size: 18px; font-weight: 600; margin-bottom: 16px; }
+
+  .detail-grid { display: grid; grid-template-columns: 140px 1fr; gap: 8px 16px; font-size: 13px; margin-bottom: 20px; }
+  .detail-label { color: var(--text-dim); }
+  .detail-value { color: var(--text); }
+
+  .detail-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* ── Add agent modal ────────────────────── */
+  .modal-backdrop {
+    display: none;
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,0.6);
+    z-index: 100;
+    align-items: center; justify-content: center;
+    padding: 20px;
+  }
+  .modal-backdrop.visible { display: flex; }
+
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    padding: 28px;
+    width: 100%;
+    max-width: 480px;
+    max-height: 90vh;
+    overflow-y: auto;
+  }
+  .modal h2 { font-size: 20px; font-weight: 600; margin-bottom: 4px; }
+  .modal .subtitle { color: var(--text-dim); font-size: 14px; margin-bottom: 22px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 24px; }
+
+  .cap-list { display: flex; flex-direction: column; gap: 8px; }
+  .cap-item {
+    display: flex; align-items: center; gap: 10px;
+    font-size: 14px; cursor: pointer;
+  }
+  .cap-item input[type="checkbox"] {
+    width: 18px; height: 18px; accent-color: var(--accent); cursor: pointer;
+  }
+
+  .provider-select { display: flex; flex-direction: column; gap: 6px; }
+  .prov-option {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    cursor: pointer; font-size: 13px;
+    transition: border-color 0.15s;
+  }
+  .prov-option:hover { border-color: var(--border-l); }
+  .prov-option.selected { border-color: var(--accent); background: var(--accent-bg); }
+
+  .page-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .page-header h2 { font-size: 20px; font-weight: 600; }
+</style>
+</head>
+<body data-page="agents">
+<div class="shell">
+
+  <!-- Page header -->
+  <div class="page-header" id="pageHeader" style="display:none;">
+    <h2>My AI</h2>
+    <button class="btn btn-accent" id="btnAddAgent">+ Add Agent</button>
+  </div>
+
+  <!-- Loading -->
+  <div class="empty" id="loading">
+    <div class="spinner"></div>
+    <p class="mt-8">Loading agents…</p>
+  </div>
+
+  <!-- Empty state -->
+  <div class="empty hidden" id="emptyState">
+    <div class="icon">🤖</div>
+    <p>You haven't registered any agents yet.</p>
+    <button class="btn btn-accent mt-16" id="btnAddAgentEmpty">+ Register Your First Agent</button>
+  </div>
+
+  <!-- Agent list -->
+  <div class="agent-list hidden" id="agentList"></div>
+
+  <!-- Detail panel -->
+  <div class="detail-panel" id="detailPanel">
+    <div class="flex-between mb-16">
+      <h3 id="detailName">Agent</h3>
+      <button class="btn btn-sm btn-ghost" id="btnCloseDetail">✕ Close</button>
+    </div>
+    <div class="detail-grid" id="detailGrid"></div>
+    <div class="detail-actions">
+      <button class="btn btn-sm" id="btnPauseAgent">⏸ Pause Agent</button>
+      <button class="btn btn-sm btn-red" id="btnRemoveAgent">Remove Agent</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═══ Add Agent Modal ═══════════════════ -->
+<div class="modal-backdrop" id="addModal">
+  <div class="modal">
+    <h2>Register a new agent</h2>
+    <p class="subtitle">Tell CROCbox about an AI agent you want to control.</p>
+
+    <div class="error-msg" id="addError" style="display:none;background:var(--red-bg);border:1px solid var(--red-dim);color:var(--red);padding:10px 14px;border-radius:var(--radius);font-size:13px;margin-bottom:14px;"></div>
+
+    <div class="field">
+      <label>Agent name</label>
+      <input type="text" id="newAgentName" placeholder="e.g. Max" autocomplete="off" data-1p-ignore />
+    </div>
+
+    <div class="field">
+      <label>Who operates this agent?</label>
+      <div class="choice-grid" style="grid-template-columns:1fr 1fr;">
+        <div class="choice-btn selected" data-op="opnli" id="opOpnli">Opn.li</div>
+        <div class="choice-btn" data-op="custom" id="opCustom">Custom</div>
+      </div>
+      <div class="field hidden mt-8" id="customOperatorField">
+        <input type="text" id="customOperator" placeholder="Operator name" autocomplete="off" data-1p-ignore />
+      </div>
+    </div>
+
+    <div class="field">
+      <label>What can this agent do?</label>
+      <div class="cap-list">
+        <label class="cap-item"><input type="checkbox" value="read" checked> Read data</label>
+        <label class="cap-item"><input type="checkbox" value="derive" checked> Create new content from data</label>
+        <label class="cap-item"><input type="checkbox" value="copy"> Copy data</label>
+        <label class="cap-item"><input type="checkbox" value="share"> Share data with other services</label>
+      </div>
+    </div>
+
+    <div class="field">
+      <label>AI service</label>
+      <div class="provider-select" id="provSelect">
+        <div class="prov-option selected" data-prov="claude">🟣 Claude</div>
+        <div class="prov-option" data-prov="gpt-4">🟢 GPT-4</div>
+        <div class="prov-option" data-prov="grok">⚫ Grok</div>
+        <div class="prov-option" data-prov="deepseek">🔵 DeepSeek</div>
+        <div class="prov-option" data-prov="ollama">🖥️ Ollama</div>
+      </div>
+    </div>
+
+    <div class="modal-actions">
+      <button class="btn" id="btnCancelAdd">Cancel</button>
+      <button class="btn btn-accent" id="btnSubmitAdd">Register Agent</button>
+    </div>
+  </div>
+</div>
+
+<!-- Supabase + shared -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="/shared/supabase.js"></script>
+<script src="/shared/auth.js"></script>
+<script src="/shared/nav.js"></script>
+
+<script>
+(function () {
+  'use strict';
+
+  const ENTITY_FORM_ID = '96583b62-2ee5-40e3-a633-fb14e88e888b';
+
+  let agents = [];
+  let selectedAgent = null;
+  let selectedProvider = 'claude';
+  let selectedOperator = 'opnli';
+
+  const $loading = document.getElementById('loading');
+  const $empty   = document.getElementById('emptyState');
+  const $list    = document.getElementById('agentList');
+  const $header  = document.getElementById('pageHeader');
+  const $detail  = document.getElementById('detailPanel');
+  const $modal   = document.getElementById('addModal');
+
+  // ── Load agents ────────────────────────────────
+  async function loadAgents() {
+    const ready = await window.crocboxReady;
+    const sb = window.crocboxSupabase;
+
+    $loading.classList.add('hidden');
+    $header.style.display = 'flex';
+
+    if (!ready || !sb) {
+      // Local-only mode — show empty
+      $empty.classList.remove('hidden');
+      return;
+    }
+
+    try {
+      const { data: user } = await sb.auth.getUser();
+      if (!user || !user.user) {
+        $empty.classList.remove('hidden');
+        return;
+      }
+
+      // Query card_instances for entity type
+      const { data, error } = await sb
+        .from('card_instances')
+        .select('*')
+        .eq('form_id', ENTITY_FORM_ID)
+        .eq('member_id', user.user.id)
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+
+      agents = data || [];
+
+      if (agents.length === 0) {
+        $empty.classList.remove('hidden');
+      } else {
+        renderAgentList();
+        $list.classList.remove('hidden');
+      }
+    } catch (err) {
+      console.error('[AGENTS] Load failed:', err.message);
+      // Try querying without member_id filter (demo mode)
+      try {
+        const { data } = await sb
+          .from('card_instances')
+          .select('*')
+          .eq('form_id', ENTITY_FORM_ID)
+          .order('created_at', { ascending: false })
+          .limit(20);
+
+        agents = data || [];
+        if (agents.length === 0) {
+          $empty.classList.remove('hidden');
+        } else {
+          renderAgentList();
+          $list.classList.remove('hidden');
+        }
+      } catch {
+        $empty.classList.remove('hidden');
+      }
+    }
+  }
+
+  // ── Render agent list ──────────────────────────
+  function renderAgentList() {
+    $list.innerHTML = agents.map((a, i) => {
+      const payload = a.payload || {};
+      const parties = payload.parties || {};
+      const subject = parties.subject || {};
+      const lifecycle = payload.lifecycle || {};
+      const name = (payload.card && payload.card.title) || (items[0] && items[0].resource && items[0].resource.display_name) || subject.display_name || subject.name || payload.name || 'Unnamed Agent';
+      const status = lifecycle.status || 'active';
+      const dotCls = status === 'active' ? 'dot-green' : status === 'suspended' ? 'dot-yellow' : 'dot-dim';
+      const statusLabel = status.charAt(0).toUpperCase() + status.slice(1);
+      const created = a.created_at ? new Date(a.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) : '';
+
+      return `<div class="agent-card" data-idx="${i}">
+        <div class="agent-avatar">🤖</div>
+        <div class="agent-info">
+          <div class="agent-name">${esc(name)}</div>
+          <div class="agent-meta">
+            <span>Registered ${esc(created)}</span>
+          </div>
+        </div>
+        <div class="agent-status">
+          <span class="dot ${dotCls}"></span>
+          <span class="label">${esc(statusLabel)}</span>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // ── Agent card click → detail ──────────────────
+  $list.addEventListener('click', (e) => {
+    const card = e.target.closest('.agent-card');
+    if (!card) return;
+    const idx = parseInt(card.dataset.idx);
+    if (isNaN(idx) || !agents[idx]) return;
+    showDetail(agents[idx]);
+  });
+
+  function showDetail(agent) {
+    selectedAgent = agent;
+    const payload = agent.payload || {};
+    const parties = payload.parties || {};
+    const subject = parties.subject || {};
+    const lifecycle = payload.lifecycle || {};
+    const claims = payload.claims || {};
+    const items = claims.items || [];
+
+    const name = (payload.card && payload.card.title) || (items[0] && items[0].resource && items[0].resource.display_name) || subject.display_name || subject.name || payload.name || 'Unnamed Agent';
+    document.getElementById('detailName').textContent = name;
+
+    const status = lifecycle.status || 'active';
+    const created = agent.created_at ? new Date(agent.created_at).toLocaleString() : '—';
+    const agentId = subject.id || agent.id || '—';
+
+    let actions = '—';
+    if (items.length > 0 && items[0].allowed_actions) {
+      actions = items[0].allowed_actions.join(', ');
+    }
+
+    document.getElementById('detailGrid').innerHTML = `
+      <span class="detail-label">Status</span><span class="detail-value"><span class="dot ${status === 'active' ? 'dot-green' : 'dot-yellow'}"></span> ${esc(status)}</span>
+      <span class="detail-label">Agent ID</span><span class="detail-value text-mono text-sm">${esc(String(agentId).slice(0, 40))}…</span>
+      <span class="detail-label">Registered</span><span class="detail-value">${esc(created)}</span>
+      <span class="detail-label">Capabilities</span><span class="detail-value">${esc(actions)}</span>
+    `;
+
+    // Update pause button
+    const pauseBtn = document.getElementById('btnPauseAgent');
+    if (status === 'active') {
+      pauseBtn.textContent = '⏸ Pause Agent';
+      pauseBtn.className = 'btn btn-sm';
+    } else {
+      pauseBtn.textContent = '▶ Resume Agent';
+      pauseBtn.className = 'btn btn-sm btn-accent';
+    }
+
+    $detail.classList.add('visible');
+  }
+
+  document.getElementById('btnCloseDetail').addEventListener('click', () => {
+    $detail.classList.remove('visible');
+    selectedAgent = null;
+  });
+
+  // ── Pause/Resume ───────────────────────────────
+  document.getElementById('btnPauseAgent').addEventListener('click', async () => {
+    if (!selectedAgent) return;
+    const sb = window.crocboxSupabase;
+    if (!sb) return;
+
+    const payload = selectedAgent.payload || {};
+    const currentStatus = (payload.lifecycle || {}).status || 'active';
+    const newStatus = currentStatus === 'active' ? 'suspended' : 'active';
+
+    try {
+      // Update the payload lifecycle status
+      const updatedPayload = { ...payload, lifecycle: { ...payload.lifecycle, status: newStatus } };
+      const { error } = await sb
+        .from('card_instances')
+        .update({ payload: updatedPayload })
+        .eq('id', selectedAgent.id);
+
+      if (error) throw error;
+
+      selectedAgent.payload = updatedPayload;
+      showDetail(selectedAgent);
+      loadAgents(); // refresh list
+    } catch (err) {
+      alert('Failed to update agent: ' + err.message);
+    }
+  });
+
+  // ── Remove Agent ───────────────────────────────
+  document.getElementById('btnRemoveAgent').addEventListener('click', async () => {
+    if (!selectedAgent) return;
+    if (!confirm('Remove this agent? This revokes all active permissions and cannot be undone.')) return;
+
+    const sb = window.crocboxSupabase;
+    if (!sb) return;
+
+    try {
+      const { error } = await sb
+        .from('card_instances')
+        .delete()
+        .eq('id', selectedAgent.id);
+
+      if (error) throw error;
+
+      $detail.classList.remove('visible');
+      selectedAgent = null;
+      loadAgents();
+    } catch (err) {
+      alert('Failed to remove agent: ' + err.message);
+    }
+  });
+
+  // ── Add Agent Modal ────────────────────────────
+  document.getElementById('btnAddAgent').addEventListener('click', openAddModal);
+  document.getElementById('btnAddAgentEmpty').addEventListener('click', openAddModal);
+
+  function openAddModal() {
+    document.getElementById('newAgentName').value = '';
+    document.getElementById('addError').style.display = 'none';
+    $modal.classList.add('visible');
+  }
+
+  document.getElementById('btnCancelAdd').addEventListener('click', () => {
+    $modal.classList.remove('visible');
+  });
+
+  // Operator toggle
+  document.getElementById('opOpnli').addEventListener('click', () => {
+    document.getElementById('opOpnli').classList.add('selected');
+    document.getElementById('opCustom').classList.remove('selected');
+    document.getElementById('customOperatorField').classList.add('hidden');
+    selectedOperator = 'opnli';
+  });
+  document.getElementById('opCustom').addEventListener('click', () => {
+    document.getElementById('opCustom').classList.add('selected');
+    document.getElementById('opOpnli').classList.remove('selected');
+    document.getElementById('customOperatorField').classList.remove('hidden');
+    selectedOperator = 'custom';
+  });
+
+  // Provider select
+  document.querySelectorAll('#provSelect .prov-option').forEach(opt => {
+    opt.addEventListener('click', () => {
+      document.querySelectorAll('#provSelect .prov-option').forEach(o => o.classList.remove('selected'));
+      opt.classList.add('selected');
+      selectedProvider = opt.dataset.prov;
+    });
+  });
+
+  // Submit
+  document.getElementById('btnSubmitAdd').addEventListener('click', async () => {
+    const name = document.getElementById('newAgentName').value.trim();
+    const errEl = document.getElementById('addError');
+    errEl.style.display = 'none';
+
+    if (!name) {
+      errEl.textContent = 'Give your agent a name.';
+      errEl.style.display = 'block';
+      return;
+    }
+
+    const btn = document.getElementById('btnSubmitAdd');
+    btn.disabled = true;
+    btn.textContent = 'Registering…';
+
+    // Gather capabilities
+    const caps = [];
+    document.querySelectorAll('.cap-list input[type="checkbox"]:checked').forEach(cb => {
+      caps.push(cb.value);
+    });
+
+    const operator = selectedOperator === 'custom'
+      ? (document.getElementById('customOperator').value.trim() || 'Custom')
+      : 'Opn.li';
+
+    try {
+      const sb = window.crocboxSupabase;
+      if (!sb) throw new Error('Supabase not initialized.');
+
+      const agentId = 'urn:uuid:' + crypto.randomUUID();
+
+      const { error } = await sb.rpc('create_card_instance', {
+        p_form_id: ENTITY_FORM_ID,
+        p_payload: {
+          type: 'entity',
+          parties: {
+            subject: {
+              id: agentId,
+              role: 'agent',
+              name: name
+            },
+            operator: {
+              name: operator
+            }
+          },
+          claims: {
+            items: [{
+              id: 'urn:uuid:' + crypto.randomUUID(),
+              type: 'agent_registration',
+              allowed_actions: caps,
+              ai_service: selectedProvider,
+              status: 'active'
+            }]
+          },
+          lifecycle: { status: 'active' }
+        }
+      });
+
+      if (error) throw error;
+
+      console.log('[AGENTS] Agent registered:', name);
+      $modal.classList.remove('visible');
+
+      // Refresh
+      $empty.classList.add('hidden');
+      $list.classList.add('hidden');
+      $loading.classList.remove('hidden');
+      loadAgents();
+
+    } catch (err) {
+      errEl.textContent = err.message || 'Registration failed.';
+      errEl.style.display = 'block';
+    }
+
+    btn.disabled = false;
+    btn.textContent = 'Register Agent';
+  });
+
+  // ── Helpers ────────────────────────────────────
+  function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+  // ── Init ───────────────────────────────────────
+  loadAgents();
+
+})();
+</script>
+</body>
+</html>

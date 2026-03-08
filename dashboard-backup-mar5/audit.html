@@ -1,0 +1,793 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CROCbox — Audit Log</title>
+<style>
+  /* ── Reset & Base ─────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0c0e11;
+    --surface:   #151820;
+    --surface-2: #1c2029;
+    --border:    #2a2e38;
+    --text:      #d4d7de;
+    --text-dim:  #7a8094;
+    --accent:    #4ec9b0;
+    --accent-dim:#2a7a6a;
+    --red:       #e05252;
+    --red-dim:   #5c2222;
+    --yellow:    #d9a64e;
+    --yellow-dim:#5c4a22;
+    --blue:      #5b9bd5;
+    --green:     #4ec9b0;
+    --mono:      'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+    --sans:      'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --radius:    6px;
+  }
+
+  body {
+    font-family: var(--sans);
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.5;
+    min-height: 100vh;
+  }
+
+  /* ── Layout ───────────────────────────────────────────── */
+  .shell {
+    max-width: 1120px;
+    margin: 0 auto;
+    padding: 24px 20px 48px;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 20px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 20px;
+  }
+
+  header .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  header .brand .logo {
+    width: 28px; height: 28px;
+    background: var(--accent);
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; color: var(--bg);
+    letter-spacing: -0.5px;
+  }
+
+  header .brand h1 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text);
+    letter-spacing: -0.3px;
+  }
+
+  header .brand h1 span {
+    color: var(--text-dim);
+    font-weight: 400;
+    margin-left: 6px;
+  }
+
+  header nav {
+    display: flex;
+    gap: 8px;
+  }
+
+  header nav a {
+    font-size: 13px;
+    color: var(--text-dim);
+    text-decoration: none;
+    padding: 6px 12px;
+    border-radius: var(--radius);
+    transition: background 0.15s, color 0.15s;
+  }
+
+  header nav a:hover { background: var(--surface-2); color: var(--text); }
+  header nav a.active { background: var(--surface-2); color: var(--accent); }
+
+  /* ── Toolbar ──────────────────────────────────────────── */
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 16px;
+  }
+
+  .toolbar .search-box {
+    flex: 1;
+    min-width: 200px;
+    position: relative;
+  }
+
+  .toolbar .search-box input {
+    width: 100%;
+    padding: 8px 12px 8px 34px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 13px;
+    font-family: var(--sans);
+    outline: none;
+    transition: border-color 0.15s;
+  }
+
+  .toolbar .search-box input:focus { border-color: var(--accent-dim); }
+
+  .toolbar .search-box .icon {
+    position: absolute;
+    left: 10px; top: 50%; transform: translateY(-50%);
+    color: var(--text-dim);
+    font-size: 14px;
+    pointer-events: none;
+  }
+
+  .filter-group {
+    display: flex;
+    gap: 6px;
+  }
+
+  select, .btn {
+    padding: 8px 12px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    color: var(--text);
+    font-size: 13px;
+    font-family: var(--sans);
+    cursor: pointer;
+    outline: none;
+    transition: border-color 0.15s, background 0.15s;
+  }
+
+  select:focus, .btn:hover { border-color: var(--accent-dim); }
+
+  .btn-accent {
+    background: var(--accent-dim);
+    border-color: var(--accent-dim);
+    color: var(--accent);
+  }
+  .btn-accent:hover {
+    background: var(--accent);
+    color: var(--bg);
+  }
+
+  .btn-subtle {
+    background: transparent;
+    border-color: var(--border);
+    color: var(--text-dim);
+  }
+  .btn-subtle:hover { color: var(--text); background: var(--surface); }
+
+  /* ── Stats bar ────────────────────────────────────────── */
+  .stats-bar {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+
+  .stat-chip {
+    font-size: 12px;
+    color: var(--text-dim);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .stat-chip .num {
+    font-weight: 600;
+    font-family: var(--mono);
+    color: var(--text);
+  }
+
+  /* ── Hash verification banner ─────────────────────────── */
+  .verify-banner {
+    display: none;
+    padding: 12px 16px;
+    border-radius: var(--radius);
+    margin-bottom: 16px;
+    font-size: 13px;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .verify-banner.pass {
+    display: flex;
+    background: #122b22;
+    border: 1px solid #1a5c40;
+    color: var(--green);
+  }
+
+  .verify-banner.fail {
+    display: flex;
+    background: var(--red-dim);
+    border: 1px solid #8b3333;
+    color: #f09090;
+  }
+
+  .verify-banner .icon { font-size: 18px; }
+  .verify-banner .detail { color: var(--text-dim); margin-left: auto; font-family: var(--mono); font-size: 11px; }
+
+  /* ── Table ────────────────────────────────────────────── */
+  .log-table-wrap {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  thead th {
+    text-align: left;
+    padding: 10px 14px;
+    background: var(--surface-2);
+    color: var(--text-dim);
+    font-weight: 500;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+    user-select: none;
+    cursor: default;
+  }
+
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+  tbody tr:last-child { border-bottom: none; }
+  tbody tr:hover { background: var(--surface); }
+
+  tbody td {
+    padding: 10px 14px;
+    vertical-align: top;
+  }
+
+  .ts {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    white-space: nowrap;
+  }
+
+  .action-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+  }
+  .action-badge.email    { background: #1f2a44; color: var(--blue); }
+  .action-badge.api      { background: #2a2538; color: #b89cdb; }
+  .action-badge.shell    { background: #2a2922; color: var(--yellow); }
+  .action-badge.skill    { background: #1a2e2a; color: var(--green); }
+  .action-badge.permission { background: #2a2229; color: #d48fb5; }
+  .action-badge.unknown  { background: var(--surface-2); color: var(--text-dim); }
+
+  .target-cell {
+    font-family: var(--mono);
+    font-size: 12px;
+    word-break: break-all;
+    max-width: 260px;
+  }
+
+  .result-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .result-badge.allowed  { background: #122b22; color: var(--green); }
+  .result-badge.denied   { background: var(--red-dim); color: var(--red); }
+  .result-badge.consent  { background: var(--yellow-dim); color: var(--yellow); }
+  .result-badge.timeout  { background: #2a2229; color: #d48fb5; }
+  .result-badge.error    { background: var(--red-dim); color: var(--red); }
+
+  .decision-cell { font-size: 12px; }
+
+  .hash-cell {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--text-dim);
+    cursor: pointer;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 3px;
+  }
+  .hash-cell:hover { color: var(--accent); }
+
+  .hash-cell.chain-break {
+    color: var(--red);
+    text-decoration-color: var(--red);
+  }
+
+  /* ── Empty state ──────────────────────────────────────── */
+  .empty-state {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-dim);
+  }
+  .empty-state .icon { font-size: 32px; margin-bottom: 12px; }
+  .empty-state p { font-size: 14px; }
+
+  /* ── Loading ──────────────────────────────────────────── */
+  .loading {
+    text-align: center;
+    padding: 48px 24px;
+    color: var(--text-dim);
+    font-size: 14px;
+  }
+  .loading .spinner {
+    display: inline-block;
+    width: 20px; height: 20px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 12px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Pagination ───────────────────────────────────────── */
+  .pagination {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 12px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+  .pagination .page-btns {
+    display: flex;
+    gap: 4px;
+  }
+  .pagination .btn {
+    padding: 5px 10px;
+    font-size: 12px;
+  }
+
+  /* ── Hash detail popover ──────────────────────────────── */
+  .hash-popover {
+    display: none;
+    position: fixed;
+    background: var(--surface-2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    font-size: 12px;
+    font-family: var(--mono);
+    z-index: 100;
+    max-width: 480px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    word-break: break-all;
+    line-height: 1.7;
+  }
+  .hash-popover .label { color: var(--text-dim); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
+  .hash-popover .value { color: var(--accent); margin-bottom: 10px; }
+  .hash-popover .value:last-child { margin-bottom: 0; }
+
+  /* ── Responsive ───────────────────────────────────────── */
+  @media (max-width: 800px) {
+    .toolbar { flex-direction: column; }
+    .filter-group { flex-wrap: wrap; }
+    table { font-size: 12px; }
+    thead th, tbody td { padding: 8px 10px; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- Header -->
+  <header>
+    <div class="brand">
+      <div class="logo">C</div>
+      <h1>CROCbox <span>Audit Log</span></h1>
+    </div>
+    <nav>
+      <a href="/">Consent</a>
+      <a href="/audit" class="active">Audit Log</a>
+    </nav>
+  </header>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="search-box">
+      <span class="icon">⌕</span>
+      <input type="text" id="searchInput" placeholder="Search actions, targets, descriptions…" />
+    </div>
+    <div class="filter-group">
+      <select id="filterRange">
+        <option value="1h">Last hour</option>
+        <option value="24h" selected>Last 24 hours</option>
+        <option value="7d">Last 7 days</option>
+        <option value="all">All time</option>
+      </select>
+      <select id="filterAction">
+        <option value="">All actions</option>
+        <option value="email">Email</option>
+        <option value="api_call">API Call</option>
+        <option value="shell_exec">Shell Command</option>
+        <option value="skill_install">Skill Install</option>
+        <option value="permission">Permission Change</option>
+      </select>
+      <select id="filterResult">
+        <option value="">All results</option>
+        <option value="allowed">Allowed</option>
+        <option value="denied">Denied</option>
+        <option value="consent">Consent Requested</option>
+        <option value="timeout">Timed Out</option>
+      </select>
+    </div>
+    <button class="btn btn-accent" id="btnVerify" title="Verify hash chain integrity">🔗 Verify Integrity</button>
+    <button class="btn btn-subtle" id="btnExport" title="Export filtered results as CSV">⬇ CSV</button>
+  </div>
+
+  <!-- Verify banner -->
+  <div class="verify-banner" id="verifyBanner">
+    <span class="icon"></span>
+    <span class="msg"></span>
+    <span class="detail"></span>
+  </div>
+
+  <!-- Stats bar -->
+  <div class="stats-bar" id="statsBar"></div>
+
+  <!-- Log table -->
+  <div class="log-table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>Time</th>
+          <th>Action</th>
+          <th>Target</th>
+          <th>CARD Result</th>
+          <th>Decision</th>
+          <th>Outcome</th>
+          <th>Hash</th>
+        </tr>
+      </thead>
+      <tbody id="logBody">
+        <tr><td colspan="7" class="loading"><div class="spinner"></div><br>Loading audit log…</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Pagination -->
+  <div class="pagination" id="pagination" style="display:none;">
+    <span id="pageInfo"></span>
+    <div class="page-btns">
+      <button class="btn btn-subtle" id="btnPrev">← Prev</button>
+      <button class="btn btn-subtle" id="btnNext">Next →</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- Hash popover -->
+<div class="hash-popover" id="hashPopover">
+  <div class="label">Entry Hash</div>
+  <div class="value" id="popHash"></div>
+  <div class="label">Previous Hash</div>
+  <div class="value" id="popPrev"></div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── State ──────────────────────────────────────────────
+  let allEntries = [];
+  let filtered = [];
+  let page = 0;
+  const PAGE_SIZE = 50;
+  let verifyResult = null;
+
+  // ── DOM refs ───────────────────────────────────────────
+  const $body     = document.getElementById('logBody');
+  const $search   = document.getElementById('searchInput');
+  const $range    = document.getElementById('filterRange');
+  const $action   = document.getElementById('filterAction');
+  const $result   = document.getElementById('filterResult');
+  const $stats    = document.getElementById('statsBar');
+  const $pag      = document.getElementById('pagination');
+  const $pageInfo = document.getElementById('pageInfo');
+  const $prev     = document.getElementById('btnPrev');
+  const $next     = document.getElementById('btnNext');
+  const $verify   = document.getElementById('btnVerify');
+  const $export   = document.getElementById('btnExport');
+  const $banner   = document.getElementById('verifyBanner');
+  const $popover  = document.getElementById('hashPopover');
+
+  // ── Fetch log ──────────────────────────────────────────
+  async function loadLog() {
+    try {
+      const res = await fetch('/api/audit');
+      if (!res.ok) throw new Error('Failed to fetch audit log');
+      allEntries = await res.json();
+      applyFilters();
+    } catch (err) {
+      $body.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="icon">⚠</div><p>Could not load audit log.<br>' + escHtml(err.message) + '</p></td></tr>';
+    }
+  }
+
+  // ── Filtering ──────────────────────────────────────────
+  function applyFilters() {
+    const search = $search.value.toLowerCase().trim();
+    const range  = $range.value;
+    const action = $action.value;
+    const result = $result.value;
+
+    const now = Date.now();
+    const rangeMs = { '1h': 3600e3, '24h': 86400e3, '7d': 604800e3, 'all': Infinity }[range] || 86400e3;
+
+    filtered = allEntries.filter(e => {
+      // Date range
+      if (range !== 'all') {
+        const ts = new Date(e.timestamp).getTime();
+        if (now - ts > rangeMs) return false;
+      }
+      // Action type
+      if (action && normalizeAction(e.actionType) !== action) return false;
+      // Result
+      if (result) {
+        const r = normalizeResult(e.cardResult);
+        if (r !== result) return false;
+      }
+      // Free text search
+      if (search) {
+        const blob = [
+          e.actionType, e.target, e.description, e.cardResult, e.userDecision, e.outcome
+        ].filter(Boolean).join(' ').toLowerCase();
+        if (!blob.includes(search)) return false;
+      }
+      return true;
+    });
+
+    page = 0;
+    renderStats();
+    renderTable();
+    renderPagination();
+  }
+
+  // ── Normalize helpers ──────────────────────────────────
+  function normalizeAction(raw) {
+    if (!raw) return 'unknown';
+    const s = raw.toLowerCase().replace(/[\s_-]+/g, '_');
+    if (s.includes('email') || s.includes('smtp') || s.includes('sendgrid') || s.includes('gmail')) return 'email';
+    if (s.includes('shell') || s.includes('exec') || s.includes('spawn') || s.includes('command')) return 'shell_exec';
+    if (s.includes('skill')) return 'skill_install';
+    if (s.includes('permission') || s.includes('grant') || s.includes('revoke')) return 'permission';
+    if (s.includes('api') || s.includes('http')) return 'api_call';
+    return s;
+  }
+
+  function normalizeResult(raw) {
+    if (!raw) return '';
+    const s = raw.toLowerCase();
+    if (s.includes('allow')) return 'allowed';
+    if (s.includes('denied') || s.includes('deny') || s.includes('block')) return 'denied';
+    if (s.includes('consent') || s.includes('pending')) return 'consent';
+    if (s.includes('timeout') || s.includes('timed')) return 'timeout';
+    return s;
+  }
+
+  // ── Pretty labels ──────────────────────────────────────
+  const ACTION_LABELS = {
+    email: 'Email Send',
+    api_call: 'API Call',
+    shell_exec: 'Shell Command',
+    skill_install: 'Skill Install',
+    permission: 'Permission Change',
+  };
+
+  const RESULT_LABELS = {
+    allowed: 'Allowed',
+    denied: 'Denied',
+    consent: 'Consent Requested',
+    timeout: 'Timed Out',
+  };
+
+  function prettyAction(raw) { return ACTION_LABELS[normalizeAction(raw)] || raw || '—'; }
+  function prettyResult(raw) { return RESULT_LABELS[normalizeResult(raw)] || raw || '—'; }
+
+  function prettyDecision(raw) {
+    if (!raw) return '—';
+    const s = raw.toLowerCase();
+    if (s.includes('approve') || s.includes('allow') && s.includes('remember')) return 'Approved (remembered)';
+    if (s.includes('approve') || s === 'allow') return 'Approved';
+    if (s.includes('deny') || s.includes('denied')) return 'Denied';
+    if (s.includes('timeout') || s.includes('timed')) return 'No response (timed out)';
+    if (s.includes('auto') || s.includes('session') || s.includes('grant')) return 'Auto-allowed';
+    if (s.includes('n/a') || s === 'none' || s === '-') return 'N/A';
+    return raw;
+  }
+
+  function prettyOutcome(raw) {
+    if (!raw) return '—';
+    const s = raw.toLowerCase();
+    if (s.includes('complete') || s.includes('pass') || s.includes('forward')) return 'Completed';
+    if (s.includes('block')) return 'Blocked';
+    if (s.includes('error')) return 'Error';
+    return raw;
+  }
+
+  // ── Timestamp ──────────────────────────────────────────
+  function fmtTime(iso) {
+    try {
+      const d = new Date(iso);
+      const mon = d.toLocaleString('en-US', { month: 'short' });
+      const day = d.getDate();
+      const yr  = d.getFullYear();
+      const time = d.toLocaleString('en-US', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true });
+      return `${mon} ${day}, ${yr}<br>${time}`;
+    } catch { return iso || '—'; }
+  }
+
+  // ── Render table ───────────────────────────────────────
+  function renderTable() {
+    const start = page * PAGE_SIZE;
+    const slice = filtered.slice(start, start + PAGE_SIZE);
+
+    if (slice.length === 0) {
+      $body.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="icon">📋</div><p>No log entries match your filters.</p></td></tr>';
+      return;
+    }
+
+    $body.innerHTML = slice.map((e, i) => {
+      const act = normalizeAction(e.actionType);
+      const res = normalizeResult(e.cardResult);
+      const hashShort = e.hash ? e.hash.slice(0, 10) + '…' : '—';
+      const isBreak = verifyResult && verifyResult.breaks && verifyResult.breaks.includes(e.index ?? (start + i));
+      return `<tr>
+        <td class="ts">${fmtTime(e.timestamp)}</td>
+        <td><span class="action-badge ${act}">${escHtml(prettyAction(e.actionType))}</span></td>
+        <td class="target-cell">${escHtml(e.target || '—')}</td>
+        <td><span class="result-badge ${res}">${escHtml(prettyResult(e.cardResult))}</span></td>
+        <td class="decision-cell">${escHtml(prettyDecision(e.userDecision))}</td>
+        <td>${escHtml(prettyOutcome(e.outcome))}</td>
+        <td class="hash-cell${isBreak ? ' chain-break' : ''}" data-hash="${escAttr(e.hash || '')}" data-prev="${escAttr(e.prevHash || '')}">${hashShort}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // ── Stats ──────────────────────────────────────────────
+  function renderStats() {
+    const total = filtered.length;
+    const allowed = filtered.filter(e => normalizeResult(e.cardResult) === 'allowed').length;
+    const denied  = filtered.filter(e => normalizeResult(e.cardResult) === 'denied').length;
+    $stats.innerHTML = `
+      <span class="stat-chip"><span class="num">${total}</span> entries</span>
+      <span class="stat-chip"><span class="num" style="color:var(--green)">${allowed}</span> allowed</span>
+      <span class="stat-chip"><span class="num" style="color:var(--red)">${denied}</span> denied</span>
+    `;
+  }
+
+  // ── Pagination ─────────────────────────────────────────
+  function renderPagination() {
+    const totalPages = Math.ceil(filtered.length / PAGE_SIZE);
+    if (totalPages <= 1) { $pag.style.display = 'none'; return; }
+    $pag.style.display = 'flex';
+    $pageInfo.textContent = `Page ${page + 1} of ${totalPages}`;
+    $prev.disabled = page === 0;
+    $next.disabled = page >= totalPages - 1;
+  }
+
+  $prev.addEventListener('click', () => { if (page > 0) { page--; renderTable(); renderPagination(); } });
+  $next.addEventListener('click', () => { if ((page + 1) * PAGE_SIZE < filtered.length) { page++; renderTable(); renderPagination(); } });
+
+  // ── Filter events ──────────────────────────────────────
+  let searchTimer;
+  $search.addEventListener('input', () => { clearTimeout(searchTimer); searchTimer = setTimeout(applyFilters, 200); });
+  $range.addEventListener('change', applyFilters);
+  $action.addEventListener('change', applyFilters);
+  $result.addEventListener('change', applyFilters);
+
+  // ── Hash chain verification ────────────────────────────
+  $verify.addEventListener('click', async () => {
+    $verify.disabled = true;
+    $verify.textContent = '⏳ Verifying…';
+    try {
+      const res = await fetch('/api/audit/verify');
+      if (!res.ok) throw new Error('Verification request failed');
+      verifyResult = await res.json();
+
+      if (verifyResult.intact) {
+        $banner.className = 'verify-banner pass';
+        $banner.querySelector('.icon').textContent = '✓';
+        $banner.querySelector('.msg').textContent = 'Hash chain intact. No entries have been altered or deleted.';
+        $banner.querySelector('.detail').textContent = verifyResult.count + ' entries verified';
+      } else {
+        $banner.className = 'verify-banner fail';
+        $banner.querySelector('.icon').textContent = '✗';
+        $banner.querySelector('.msg').textContent = 'Integrity break detected! ' + (verifyResult.message || 'One or more entries may have been altered.');
+        $banner.querySelector('.detail').textContent = 'Break at entry ' + (verifyResult.breaks ? verifyResult.breaks.join(', ') : '?');
+      }
+      renderTable(); // re-render to highlight breaks
+    } catch (err) {
+      $banner.className = 'verify-banner fail';
+      $banner.querySelector('.icon').textContent = '⚠';
+      $banner.querySelector('.msg').textContent = 'Could not verify: ' + err.message;
+      $banner.querySelector('.detail').textContent = '';
+    }
+    $verify.disabled = false;
+    $verify.textContent = '🔗 Verify Integrity';
+  });
+
+  // ── CSV export ─────────────────────────────────────────
+  $export.addEventListener('click', () => {
+    if (filtered.length === 0) return;
+    const headers = ['Timestamp', 'Action Type', 'Target', 'CARD Result', 'User Decision', 'Outcome', 'Hash'];
+    const rows = filtered.map(e => [
+      e.timestamp,
+      prettyAction(e.actionType),
+      e.target || '',
+      prettyResult(e.cardResult),
+      prettyDecision(e.userDecision),
+      prettyOutcome(e.outcome),
+      e.hash || ''
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(c => '"' + String(c).replace(/"/g, '""') + '"').join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'crocbox-audit-' + new Date().toISOString().slice(0, 10) + '.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  });
+
+  // ── Hash popover ───────────────────────────────────────
+  document.addEventListener('click', (ev) => {
+    const cell = ev.target.closest('.hash-cell');
+    if (cell) {
+      const hash = cell.dataset.hash;
+      const prev = cell.dataset.prev;
+      if (!hash || hash === '—') return;
+      document.getElementById('popHash').textContent = hash;
+      document.getElementById('popPrev').textContent = prev || '(genesis — no previous entry)';
+      const rect = cell.getBoundingClientRect();
+      $popover.style.display = 'block';
+      $popover.style.top = (rect.bottom + 8) + 'px';
+      $popover.style.left = Math.min(rect.left, window.innerWidth - 500) + 'px';
+    } else {
+      $popover.style.display = 'none';
+    }
+  });
+
+  // ── Auto-refresh every 30 seconds ─────────────────────
+  setInterval(loadLog, 30000);
+
+  // ── Escape helpers ─────────────────────────────────────
+  function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+  function escAttr(s) { return s.replace(/"/g, '&quot;').replace(/</g, '&lt;'); }
+
+  // ── Init ───────────────────────────────────────────────
+  loadLog();
+
+})();
+</script>
+</body>
+</html>
