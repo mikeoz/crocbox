@@ -1,0 +1,9 @@
+node_modules/
+build/
+build-cache/
+build-dmg.sh
+build/
+dmg-staging/
+logs/
+.env
+.DS_Store
