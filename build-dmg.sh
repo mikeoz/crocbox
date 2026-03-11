@@ -8,10 +8,10 @@
 set -e
 
 APP_NAME="CROCbox"
-VERSION="0.5.0"
+VERSION="0.6.1"
 BUNDLE_ID="com.opnli.crocbox"
 DMG_NAME="${APP_NAME}-v${VERSION}.dmg"
-NODE_VERSION="20.19.0"
+NODE_VERSION="0.6.1"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build"
@@ -242,11 +242,11 @@ if [ -n "${DEVELOPER_ID}" ]; then
   echo "        Signed successfully."
 
   # Notarize if credentials are available
-  if xcrun notarytool history --keychain-profile "CROCbox-Notarization" &>/dev/null; then
+  if xcrun notarytool history --keychain-profile "notarytool-password" &>/dev/null; then
     echo "        Submitting for notarization..."
     ditto -c -k --keepParent "${APP_DIR}" "${BUILD_DIR}/${APP_NAME}.zip"
     xcrun notarytool submit "${BUILD_DIR}/${APP_NAME}.zip" \
-      --keychain-profile "CROCbox-Notarization" \
+      --keychain-profile "notarytool-password" \
       --wait
     xcrun stapler staple "${APP_DIR}"
     rm -f "${BUILD_DIR}/${APP_NAME}.zip"
