@@ -85,8 +85,6 @@
 .ask-row input:focus { border-color: var(--accent-dim); }
 .ask-row input::placeholder { color: var(--text-xdim); }
 @keyframes fadeInLog { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
-
-/* ── Phase 2: OpenClaw Debut ─────────────────────────────── */
 .transition-card { background: var(--surface); border: 1px solid var(--accent-dim); border-radius: var(--radius-lg); padding: 28px 24px; margin-bottom: 16px; display: none; }
 .transition-card .tc-check { font-size: 13px; color: var(--accent); margin-bottom: 6px; font-weight: 600; }
 .transition-card .tc-divider { width: 32px; height: 2px; background: var(--accent-dim); margin: 14px 0; }
@@ -128,7 +126,6 @@
 .phase3-bar a { color: var(--accent); text-decoration: none; font-size: 11px; font-weight: 600; }
 .phase3-bar a:hover { text-decoration: underline; }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-
 </style>
 </head>
 <body>
@@ -243,9 +240,6 @@
       </div>
     </div>
   </div>
-  
-  <!-- ── Phase 2: Transition Card ───────────────────────── -->
-<-m transition card removed -->
 
   <!-- ── Phase 2: OpenClaw Debut ──────────────────────────── -->
   <div class="phase2-shell" id="phase2Shell">
@@ -272,7 +266,7 @@
     <a href="/audit.html">View Activity</a>
   </div>
 
-<div class="ask-card">
+  <div class="ask-card">
     <div class="ask-label">Or, ask your AI anything:</div>
     <div class="ask-row">
       <input type="text" id="askInput" placeholder="e.g. What's on my Desktop?" />
@@ -281,6 +275,7 @@
     <div id="askResult" style="margin-top:12px;font-size:13px;color:var(--text-dim);display:none;line-height:1.6;"></div>
   </div>
 </div>
+
 <script>
 (function(){
 'use strict';
@@ -292,19 +287,65 @@ function connectProxyWS(){
     ws=new WebSocket('ws://127.0.0.1:18790/crocbox/consent');
     ws.addEventListener('open',()=>{ws.send(JSON.stringify({type:'dashboard_connect',timestamp:new Date().toISOString()}));});
     ws.addEventListener('message',(evt)=>{let msg;try{msg=JSON.parse(evt.data);}catch{return;}handleProxyMessage(msg);});
-    ws.addEventListener('close',()=>{ws=null;});
+    ws.addEventListener('close',()=>{ws=null;setTimeout(connectProxyWS,2000);});
     ws.addEventListener('error',()=>{ws=null;});
-  }catch(e){ws=null;}
+  }catch(e){ws=null;setTimeout(connectProxyWS,2000);}
 }
 function handleProxyMessage(msg){
   if(msg.type==='ping'){if(ws&&ws.readyState===WebSocket.OPEN)ws.send(JSON.stringify({type:'pong'}));return;}
   if(msg.type==='consent_request'){
     currentRequestId=msg.request_id;
-    document.getElementById('consentQuestion').textContent='Your AI wants to read your Desktop folder';
-    document.getElementById('consentDetail').textContent='Action: Read filesystem · Target: ~/Desktop';
-    showState('consent-prompt');return;
+    const actionLabels={
+      'web_search':'search the web',
+      'filesystem':'read your Desktop folder',
+      'api_call':'make an external request',
+      'shell':'run a command'
+    };
+    const actionLabel=actionLabels[msg.action]||msg.action||'take an action';
+    // If Phase 2 chat is visible, show consent inline in chat
+    const phase2=document.getElementById('phase2Shell');
+    if(phase2&&phase2.style.display!=='none'){
+      showChatConsent(msg.request_id,actionLabel,msg.target||'');
+    } else {
+      document.getElementById('consentQuestion').textContent='Your AI wants to '+actionLabel;
+      document.getElementById('consentDetail').textContent='Action: '+(msg.action||'unknown')+' · Target: '+(msg.target||'unknown');
+      showState('consent-prompt');
+    }
+    return;
   }
   if(msg.type==='consent_resolved'&&msg.result==='timeout'){showState('denied');}
+}
+function showChatConsent(requestId,actionLabel,target){
+  const container=document.getElementById('chatMessages');
+  if(!container)return;
+  const existing=document.getElementById('activeChatConsent');
+  if(existing)existing.remove();
+  const wrap=document.createElement('div');
+  wrap.id='activeChatConsent';
+  wrap.className='chat-consent-box';
+  wrap.innerHTML=`
+    <div class="chat-consent-inner">
+      <div class="cc-source">🛡️ CROCbox — Action Intercepted</div>
+      <div class="cc-question">Your AI wants to ${actionLabel}</div>
+      <div class="cc-detail">Target: ${target}</div>
+      <div class="cc-actions">
+        <button class="btn btn-accent" id="ccAllow">✓ Allow</button>
+        <button class="btn btn-red" id="ccDeny">✕ Deny</button>
+      </div>
+      <div class="cc-note">CROCbox intercepted this before any data was sent. Your choice.</div>
+    </div>`;
+  container.appendChild(wrap);
+  container.scrollTop=container.scrollHeight;
+  wrap.querySelector('#ccAllow').addEventListener('click',()=>{
+    sendConsentResponse(requestId,'allow');
+    currentRequestId=null;
+    wrap.remove();
+  });
+  wrap.querySelector('#ccDeny').addEventListener('click',()=>{
+    sendConsentResponse(requestId,'deny');
+    currentRequestId=null;
+    wrap.remove();
+  });
 }
 function sendConsentResponse(requestId,decision){
   if(!ws||ws.readyState!==WebSocket.OPEN)return;
@@ -317,15 +358,13 @@ document.getElementById('btnStartDemo').addEventListener('click',async()=>{
   showState('consent-prompt');
 });
 document.getElementById('btnAllow').addEventListener('click',async()=>{
-  // Hide all states first
+  if(currentRequestId){sendConsentResponse(currentRequestId,'allow');currentRequestId=null;}
   states.forEach(s=>{const el=document.getElementById('state-'+s);if(el)el.style.setProperty('display','none','important');});
-  // Show a simple loading indicator
   const loadingEl=document.createElement('div');
   loadingEl.id='scan-loading';
   loadingEl.style.cssText='padding:20px;text-align:center;color:var(--text-dim);font-size:14px;';
   loadingEl.innerHTML='<span class="spinner"></span> Scanning Desktop...';
   document.querySelector('.demo-body').appendChild(loadingEl);
-  // Call scan API
   let result;
   try{
     const resp=await fetch('/api/magic-demo/scan',{method:'POST'});
@@ -402,11 +441,7 @@ function startOrganize(dest,label){
   document.getElementById('organizeDetail').textContent=`Action: Write filesystem · Target: ~/Desktop/${dest}/`;
   showState('organize-consent');
 }
-// btnNoThanks removed
-document.getElementById('btnRetry').addEventListener('click',()=>{currentRequestId=null;showState('idle');
-
-// Phase 1 end states now have inline Meet AI buttons
-});
+document.getElementById('btnRetry').addEventListener('click',()=>{currentRequestId=null;showState('idle');});
 ['btnMeetAI','btnMeetAIDone','btnMeetAIDenied','btnMeetAIFallback'].forEach(id=>{
   const el=document.getElementById(id);
   if(el)el.addEventListener('click',()=>{
@@ -434,14 +469,6 @@ connectProxyWS();
 let chatHistory = [];
 let phase2Active = false;
 let phase3Active = false;
-let pendingConsentResolve = null;
-
-function showTransition() {
-  const tc = document.getElementById('transitionCard');
-  if (tc) { tc.style.setProperty('display','block','important'); tc.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }
-}
-
-// btnMeetAI handled above
 
 function appendMessage(role, text, isThinking) {
   const container = document.getElementById('chatMessages');
@@ -460,43 +487,15 @@ function appendMessage(role, text, isThinking) {
   return bubble;
 }
 
-function appendConsentPrompt(query, onAllow, onDeny) {
-  const container = document.getElementById('chatMessages');
-  const wrap = document.createElement('div');
-  wrap.className = 'chat-consent-box';
-  wrap.innerHTML = `
-    <div class="chat-consent-inner">
-      <div class="cc-source">🛡️ CROCbox — Action Intercepted</div>
-      <div class="cc-question">Your AI wants to access the web</div>
-      <div class="cc-detail">Searching for: "${query}"</div>
-      <div class="cc-actions">
-        <button class="btn btn-accent" id="ccAllow">✓ Allow</button>
-        <button class="btn btn-red" id="ccDeny">✕ Deny</button>
-      </div>
-      <div class="cc-note">CROCbox intercepted this before any data was sent. Your choice.</div>
-    </div>`;
-  container.appendChild(wrap);
-  container.scrollTop = container.scrollHeight;
-  wrap.querySelector('#ccAllow').addEventListener('click', () => { wrap.remove(); onAllow(); });
-  wrap.querySelector('#ccDeny').addEventListener('click', () => { wrap.remove(); onDeny(); });
-  return wrap;
-}
-
 async function sendToOpenClaw(userPrompt) {
   const btn = document.getElementById('btnAskAI');
   const input = document.getElementById('chatInput');
   btn.disabled = true;
   btn.textContent = '…';
-
-  // Clear pre-loaded hint
   document.getElementById('preloadedHint').style.display = 'none';
-
-  // Show user message
   appendMessage('user', userPrompt);
   input.value = '';
   input.placeholder = 'Ask your AI anything...';
-
-  // Show thinking indicator
   const thinkingBubble = appendMessage('ai', '⏳ Your AI is on it — pulling live data now…', true);
   btn.textContent = '⏳ Working…';
 
@@ -507,18 +506,14 @@ async function sendToOpenClaw(userPrompt) {
       body: JSON.stringify({ prompt: userPrompt, history: chatHistory })
     });
     const data = await resp.json();
-
     thinkingBubble.parentElement.remove();
 
     if (data.error) {
       appendMessage('ai', 'Something went wrong: ' + data.error);
     } else {
-      // Show consent prompt inline if consent fired
-      if (data.consentFired && data.consentDecision && data.consentDecision !== 'allow' && data.consentDecision !== 'remember') {
-        // Consent was denied — response already includes denial message
+      if (data.consentFired && data.denied) {
         appendMessage('ai', data.reply);
       } else if (data.consentFired) {
-        // Consent was approved (happened server-side via proxy) — show educational note
         const consentNote = document.createElement('div');
         consentNote.className = 'chat-consent-box';
         consentNote.innerHTML = `<div class="chat-consent-inner" style="background:var(--surface-2);border-color:var(--border)"><div class="cc-source" style="color:var(--accent)">✓ CROCbox — Web Access Approved</div><div style="font-size:13px;color:var(--text-dim)">Your AI searched: "${data.webSearchQuery}"</div></div>`;
@@ -529,14 +524,12 @@ async function sendToOpenClaw(userPrompt) {
         appendMessage('ai', data.reply);
       }
 
-      // Update history
       if (data.updatedHistory) chatHistory = data.updatedHistory;
       else {
         chatHistory.push({ role: 'user', content: userPrompt });
         chatHistory.push({ role: 'assistant', content: data.reply });
       }
 
-      // Activate Phase 3
       if (!phase3Active) {
         phase3Active = true;
         document.getElementById('phase3Bar').style.setProperty('display','flex','important');
@@ -560,9 +553,6 @@ document.getElementById('btnAskAI').addEventListener('click', () => {
 document.getElementById('chatInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('btnAskAI').click(); }
 });
-
-
-
 </script>
 </body>
 </html>
