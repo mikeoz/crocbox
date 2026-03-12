@@ -82,7 +82,7 @@ cat > "${APP_RESOURCES}/.env.defaults" << 'ENVEOF'
 OPENCLAW_HOST=127.0.0.1
 OPENCLAW_PORT=18789
 CROCBOX_PROXY_PORT=18790
-CROCBOX_GATEWAY_PORT=18791
+CROCBOX_GATEWAY_PORT=18789
 CROCBOX_DASHBOARD_PORT=3000
 CROCBOX_CONSENT_TIMEOUT=300000
 VERIFY_CARD_URL=https://ehsnrqjyvtluwkmizsyy.supabase.co/functions/v1/verify-card
@@ -149,7 +149,18 @@ show_error() {
 
 port_in_use() { lsof -ti:$1 > /dev/null 2>&1; }
 
-for PORT in 18790 18791 3000; do
+# Kill any orphaned CROCbox processes from prior sessions
+for SVC in proxy gateway dashboard; do
+  PID_FILE="${PID_DIR}/${SVC}.pid"
+  if [ -f "${PID_FILE}" ]; then
+    OLD_PID=$(cat "${PID_FILE}")
+    kill "${OLD_PID}" 2>/dev/null
+    rm "${PID_FILE}"
+  fi
+done
+sleep 1
+
+for PORT in 18790 18789 3000; do
   if port_in_use $PORT; then
     show_error "CROCbox cannot start: port $PORT is already in use. Please quit any other CROCbox instance and try again."
   fi
@@ -178,15 +189,25 @@ done
 "${NODE}" "${APP_DIR}/src/gateway/index.js" \
   > "${LOG_DIR}/gateway.log" 2>&1 &
 echo $! > "${PID_DIR}/gateway.pid"
-
-sleep 1
+for i in $(seq 1 20); do
+  sleep 0.5
+  lsof -ti:18789 > /dev/null 2>&1 && break
+  if [ $i -eq 20 ]; then
+    show_error "CROCbox gateway could not start. See: ${LOG_DIR}/gateway.log"
+  fi
+done
 
 # Start Dashboard
 "${NODE}" "${APP_DIR}/dashboard/server.js" \
   > "${LOG_DIR}/dashboard.log" 2>&1 &
 echo $! > "${PID_DIR}/dashboard.pid"
-
-sleep 1
+for i in $(seq 1 20); do
+  sleep 0.5
+  curl -s http://127.0.0.1:3000 > /dev/null 2>&1 && break
+  if [ $i -eq 20 ]; then
+    show_error "CROCbox dashboard could not start. See: ${LOG_DIR}/dashboard.log"
+  fi
+done
 
 # Open browser
 open "http://127.0.0.1:3000"
