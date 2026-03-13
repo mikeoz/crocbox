@@ -427,12 +427,10 @@
       </select>
       <select id="filterAction">
         <option value="">All actions</option>
-        <option value="email">Email</option>
-        <option value="api_call">API Call</option>
+        <option value="api_call">Web Search</option>
+        <option value="filesystem-read">File Read</option>
+        <option value="filesystem-write">File Write</option>
         <option value="shell_exec">Shell Command</option>
-        <option value="skill_install">Skill Install</option>
-        <option value="permission">Permission Change</option>
-      </select>
       <select id="filterResult">
         <option value="">All results</option>
         <option value="allowed">Allowed</option>
@@ -440,6 +438,12 @@
         <option value="consent">Consent Requested</option>
         <option value="timeout">Timed Out</option>
       </select>
+      <select id="filterRoom">
+        <option value="">All Data Rooms</option>
+      </select>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-dim);cursor:pointer;margin-left:8px;">
+        <input type="checkbox" id="liveToggle"> Live
+      </label>
     </div>
     <button class="btn btn-accent" id="btnVerify" title="Verify hash chain integrity">🔗 Verify Integrity</button>
     <button class="btn btn-subtle" id="btnExport" title="Export filtered results as CSV">⬇ CSV</button>
@@ -513,6 +517,8 @@
   const $result   = document.getElementById('filterResult');
   const $stats    = document.getElementById('statsBar');
   const $pag      = document.getElementById('pagination');
+  const $room     = document.getElementById('filterRoom');
+  const $live     = document.getElementById('liveToggle');
   const $pageInfo = document.getElementById('pageInfo');
   const $prev     = document.getElementById('btnPrev');
   const $next     = document.getElementById('btnNext');
@@ -555,6 +561,11 @@
       if (result) {
         const r = normalizeResult(e.cardResult);
         if (r !== result) return false;
+      }
+      // Data Room
+      const roomFilter = $room ? $room.value : '';
+      if (roomFilter && e.target) {
+        if (!e.target.toLowerCase().includes(roomFilter.toLowerCase())) return false;
       }
       // Free text search
       if (search) {
@@ -704,6 +715,24 @@
   $range.addEventListener('change', applyFilters);
   $action.addEventListener('change', applyFilters);
   $result.addEventListener('change', applyFilters);
+  if ($room) $room.addEventListener('change', applyFilters);
+  // Load Data Rooms into filter dropdown
+  fetch('/api/data-rooms').then(r=>r.json()).then(d=>{
+    if(d.rooms)d.rooms.forEach(r=>{
+      const opt=document.createElement('option');
+      opt.value=r.path;opt.textContent=r.name;
+      $room.appendChild(opt);
+    });
+  }).catch(()=>{});
+  // Live mode — auto-refresh every 5s
+  let liveInterval=null;
+  if($live)$live.addEventListener('change',()=>{
+    if($live.checked){
+      liveInterval=setInterval(loadLog,5000);
+    } else {
+      if(liveInterval){clearInterval(liveInterval);liveInterval=null;}
+    }
+  });
 
   // ── Hash chain verification ────────────────────────────
   $verify.addEventListener('click', async () => {
