@@ -8,10 +8,10 @@
 set -e
 
 APP_NAME="CROCbox"
-VERSION="0.6.1"
+VERSION="0.6.2"
 BUNDLE_ID="com.opnli.crocbox"
 DMG_NAME="${APP_NAME}-v${VERSION}.dmg"
-NODE_VERSION="0.6.1"
+NODE_VERSION="20.19.0"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 BUILD_DIR="${SCRIPT_DIR}/build"
@@ -90,6 +90,8 @@ VERIFY_API_KEY=da1ec57bdb55e55068f9722fd1cd195f1df62466205eff5cfce408ff089297a4
 SUPABASE_URL=https://ehsnrqjyvtluwkmizsyy.supabase.co
 SUPABASE_ANON_KEY=sb_publishable_ku9GsVckF8Lpk_JiPstDzg_rYXedkdz
 CROCBOX_LOG_DIR=SUPPORT_DIR_PLACEHOLDER/logs
+AI_PROVIDER=anthropic
+AI_API_KEY=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
 CROCBOX_AGENT_ID=urn:uuid:5b3a4df1-d71b-4e8c-9c6d-22f12a95c358
 ENVEOF
 
