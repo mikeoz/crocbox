@@ -90,8 +90,8 @@ function buildSuggestions(cats) {
 }
 
 async function handleScanRequest(req, res) {
-  const decision = 'allow'; // Magic demo: consent is shown in UI, no proxy roundtrip needed
-  writeAuditEntry({ action: 'filesystem-read', target: DESKTOP_PATH, result: 'allowed', reason: 'magic-demo-consent:ui-approved', demo: true });
+  const decision = await requestConsent({ type: 'filesystem', target: DESKTOP_PATH, summary: 'Scan your Desktop folder' });
+  writeAuditEntry({ action: 'filesystem-read', target: DESKTOP_PATH, result: (decision === 'allow' || decision === 'remember') ? 'allowed' : 'blocked', reason: `magic-scan-consent:${decision}` });
 
   if (decision === 'no-proxy') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -117,7 +117,7 @@ async function handleScanRequest(req, res) {
 
   const cats = categorize(rawEntries);
   const suggestions = buildSuggestions(cats);
-  writeAuditEntry({ action: 'filesystem-read', target: DESKTOP_PATH, result: 'completed', reason: 'magic-demo-scan', detail: `Scanned ${rawEntries.length} items`, demo: true });
+  writeAuditEntry({ action: 'filesystem-read', target: DESKTOP_PATH, result: 'completed', reason: 'magic-demo-scan', detail: `Scanned ${rawEntries.length} items` });
 
   res.writeHead(200, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ success: true, summary: { total: rawEntries.length, categories: Object.fromEntries(Object.entries(cats).map(([k, v]) => [k, { count: v.length }])), suggestions, remembered: decision === 'remember' } }));
@@ -131,7 +131,7 @@ async function handleOrganizeRequest(req, res) {
     try { dest = JSON.parse(body).dest || 'Screenshots'; } catch {}
     const destPath = path.join(DESKTOP_PATH, dest);
     const decision = await requestConsent({ type: 'filesystem', target: destPath, summary: `Create folder and move files on Desktop → ${dest}/` });
-    writeAuditEntry({ action: 'filesystem-write', target: destPath, result: (decision === 'allow' || decision === 'remember') ? 'allowed' : 'blocked', reason: `magic-demo-organize-consent:${decision}`, demo: true });
+    writeAuditEntry({ action: 'filesystem-write', target: destPath, result: (decision === 'allow' || decision === 'remember') ? 'allowed' : 'blocked', reason: `magic-demo-organize-consent:${decision}` });
 
     if (decision !== 'allow' && decision !== 'remember') {
       res.writeHead(403, { 'Content-Type': 'application/json' });
@@ -153,7 +153,7 @@ async function handleOrganizeRequest(req, res) {
       }
     } catch (err) { res.writeHead(500, { 'Content-Type': 'application/json' }); return res.end(JSON.stringify({ success: false, error: err.message })); }
 
-    writeAuditEntry({ action: 'filesystem-write', target: destPath, result: 'completed', reason: 'magic-demo-organize', detail: `Moved ${moved} files to ${dest}/`, demo: true });
+    writeAuditEntry({ action: 'filesystem-write', target: destPath, result: 'completed', reason: 'magic-demo-organize', detail: `Moved ${moved} files to ${dest}/` });
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ success: true, moved, dest, errors: errs }));
   });

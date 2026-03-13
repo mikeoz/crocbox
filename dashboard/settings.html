@@ -223,6 +223,25 @@
       <span class="text-sm text-dim" id="saveStatus" style="margin-left:10px;"></span>
     </div>
   </div>
+  <!-- ═══ 9c2: Comfort Level ═══════════════════ -->
+  <div class="settings-section">
+    <h3>Comfort Level</h3>
+    <p style="font-size:13px;color:var(--text-dim);margin-bottom:12px;">Controls which tools your AI can request. Changes take effect on next conversation.</p>
+    <div class="setting-row">
+      <span class="setting-label">Current level</span>
+      <span class="setting-value">
+        <select id="crocLevelSelect" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);font-size:14px;">
+          <option value="beginner">Beginner — Web search only</option>
+          <option value="intermediate">Intermediate — Web + read files</option>
+          <option value="expert">Expert — All tools</option>
+        </select>
+      </span>
+    </div>
+    <div style="margin-top:10px;">
+      <button class="btn btn-sm btn-accent" id="btnSaveLevel">Save Level</button>
+      <span id="levelSaved" style="font-size:13px;color:var(--accent);margin-left:8px;display:none;">Saved!</span>
+    </div>
+  </div>
 
   <!-- ═══ 9d: Advanced ═══════════════════════ -->
   <div class="settings-section">
@@ -461,6 +480,46 @@
   });
 
   // ── Init ───────────────────────────────────
+
+  // ── Comfort Level ──────────────────────────
+  async function loadLevel() {
+    try {
+      const res = await fetch('/api/config/ai');
+      const data = await res.json();
+      // Read CROC_LEVEL from env via config endpoint
+    } catch {}
+    // Fallback: read from env directly
+    try {
+      const res = await fetch('/api/config');
+      const data = await res.json();
+      // CROC_LEVEL not in config response yet, default to beginner
+    } catch {}
+  }
+  // Read level from .env via a dedicated fetch
+  (async () => {
+    try {
+      const r = await fetch('/api/config');
+      const d = await r.json();
+      if (d.crocLevel) document.getElementById('crocLevelSelect').value = d.crocLevel;
+    } catch {}
+  })();
+  document.getElementById('btnSaveLevel').addEventListener('click', async () => {
+    const level = document.getElementById('crocLevelSelect').value;
+    const current = document.getElementById('crocLevelSelect').dataset.original || 'beginner';
+    if (['expert', 'intermediate'].includes(level) && ['beginner'].includes(current)) {
+      if (!confirm('Upgrade to ' + level + '? This enables more powerful tools.')) return;
+    }
+    try {
+      await fetch('/api/config/level', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ value: level })
+      });
+      const msg = document.getElementById('levelSaved');
+      msg.style.display = 'inline';
+      setTimeout(() => msg.style.display = 'none', 2000);
+    } catch {}
+  });
   loadAccount();
   loadConfig();
 

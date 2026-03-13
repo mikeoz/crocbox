@@ -266,6 +266,38 @@
       <button class="btn btn-accent btn-lg" id="next3">Connect →</button>
     </div>
   </div>
+  <!-- ═══ STEP 3b: Rental Ski Level ═════════════════════════ -->
+  <div class="step-card wiz-step hidden" id="step3b">
+    <h2>Choose your comfort level</h2>
+    <p class="subtitle">This controls which actions your AI can request. You can change this anytime in Settings.</p>
+    <div class="level-cards" style="display:flex;flex-direction:column;gap:12px;margin-bottom:20px;">
+      <div class="level-card selected" data-level="beginner" style="border:2px solid var(--accent);border-radius:var(--radius-lg);padding:16px 20px;cursor:pointer;background:var(--surface);">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div style="font-weight:600;font-size:16px;">🟢 Beginner</div>
+            <div style="font-size:13px;color:var(--text-dim);margin-top:4px;">Web search only. Every action needs your OK.</div>
+          </div>
+          <div style="font-size:12px;color:var(--accent);font-weight:600;">RECOMMENDED</div>
+        </div>
+      </div>
+      <div class="level-card" data-level="intermediate" style="border:2px solid var(--border);border-radius:var(--radius-lg);padding:16px 20px;cursor:pointer;background:var(--surface);">
+        <div>
+          <div style="font-weight:600;font-size:16px;">🟡 Intermediate</div>
+          <div style="font-size:13px;color:var(--text-dim);margin-top:4px;">Web search + read your files. Option to remember choices per session.</div>
+        </div>
+      </div>
+      <div class="level-card" data-level="expert" style="border:2px solid var(--border);border-radius:var(--radius-lg);padding:16px 20px;cursor:pointer;background:var(--surface);">
+        <div>
+          <div style="font-weight:600;font-size:16px;">🔴 Expert</div>
+          <div style="font-size:13px;color:var(--text-dim);margin-top:4px;">All tools: web, read files, write files, run commands. Trust tools per session.</div>
+        </div>
+      </div>
+    </div>
+    <div class="step-nav">
+      <button class="btn" id="back3b">← Back</button>
+      <button class="btn btn-accent btn-lg" id="next3b">Continue →</button>
+    </div>
+  </div>
 
   <!-- ═══ STEP 4: Done ═════════════════════════ -->
   <div class="step-card wiz-step hidden" id="step4">
@@ -300,7 +332,7 @@
   let connectedAI = false;
 
   // ── Steps ──────────────────────────────────────
-  const STEPS = ['step0', 'step1a', 'step2', 'step3', 'step4'];
+  const STEPS = ['step0', 'step1a', 'step2', 'step3', 'step3b', 'step4'];
 
   function showStep(id) {
     document.querySelectorAll('.wiz-step').forEach(s => s.classList.add('hidden'));
@@ -308,7 +340,7 @@
     if (el) el.classList.remove('hidden');
 
     // Update progress
-    const stepMap = { step0: 0, step1a: 1, step1b: 1, step2: 2, step3: 3, step4: 4 };
+    const stepMap = { step0: 0, step1a: 1, step1b: 1, step2: 2, step3: 3, step3b: 3, step4: 4 };
     const n = stepMap[id] || 0;
     document.querySelectorAll('.wizard-progress .step').forEach(s => {
       const sn = parseInt(s.dataset.s);
@@ -540,7 +572,7 @@
   document.getElementById('skipAI').addEventListener('click', () => {
     connectedAI = false;
     document.getElementById('doneAI').style.display = 'none';
-    showStep('step4');
+    showStep('step3b');
   });
 
   document.getElementById('next3').addEventListener('click', async () => {
@@ -548,7 +580,7 @@
       // No selection — just skip
       connectedAI = false;
       document.getElementById('doneAI').style.display = 'none';
-      showStep('step4');
+      showStep('step3b');
       return;
     }
 
@@ -570,6 +602,33 @@
       document.getElementById('doneAI').style.display = 'none';
     }
 
+    showStep('step3b');
+  });
+
+  // ── Step 3b: Rental Ski Level ──────────────────────────────
+  let selectedLevel = 'beginner';
+  document.querySelectorAll('.level-card').forEach(card => {
+    card.addEventListener('click', () => {
+      document.querySelectorAll('.level-card').forEach(c => {
+        c.classList.remove('selected');
+        c.style.borderColor = 'var(--border)';
+      });
+      card.classList.add('selected');
+      card.style.borderColor = 'var(--accent)';
+      selectedLevel = card.dataset.level;
+    });
+  });
+  document.getElementById('back3b').addEventListener('click', () => {
+    showStep('step3');
+  });
+  document.getElementById('next3b').addEventListener('click', async () => {
+    try {
+      await fetch('/api/config/level', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'CROC_LEVEL', value: selectedLevel })
+      });
+    } catch {}
     showStep('step4');
   });
 
