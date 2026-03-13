@@ -14,7 +14,7 @@ const http   = require('http');
 const crypto = require('crypto');
 
 const PROXY_PORT   = parseInt(process.env.CROCBOX_PROXY_PORT || '18790');
-const AUDIT_LOG    = path.join(__dirname, '..', 'logs', 'crocbox-audit.jsonl');
+const AUDIT_LOG    = path.join(process.env.CROCBOX_LOG_DIR || path.join(__dirname, '..', 'logs'), 'crocbox-audit.jsonl');
 const DESKTOP_PATH = path.join(os.homedir(), 'Desktop');
 
 const EXT_MAP = {
