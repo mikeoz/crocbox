@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>CROCbox — Audit Log</title>
+<link rel="stylesheet" href="/shared/style.css">
 <style>
   /* ── Reset & Base ─────────────────────────────────────── */
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -397,20 +398,10 @@
   }
 </style>
 </head>
-<body>
+<body data-page="audit">
 <div class="shell">
 
   <!-- Header -->
-  <header>
-    <div class="brand">
-      <div class="logo">C</div>
-      <h1>CROCbox <span>Audit Log</span></h1>
-    </div>
-    <nav>
-      <a href="/">Consent</a>
-      <a href="/audit" class="active">Audit Log</a>
-    </nav>
-  </header>
 
   <!-- Toolbar -->
   <div class="toolbar">
@@ -819,5 +810,6 @@
 
 })();
 </script>
+<script src="/shared/nav.js"></script>
 </body>
 </html>
