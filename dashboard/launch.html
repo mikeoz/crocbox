@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CROCbox — Starting</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0f1117; color: #e0e0e0; font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .launch-shell { text-align: center; max-width: 360px; padding: 40px 24px; }
+  .logo { width: 56px; height: 56px; background: #2dd4a8; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; font-weight: 800; font-size: 28px; color: #0f1117; margin-bottom: 24px; }
+  h1 { font-size: 22px; font-weight: 600; margin-bottom: 8px; }
+  .subtitle { font-size: 14px; color: #888; margin-bottom: 32px; }
+  .services { display: flex; flex-direction: column; gap: 12px; margin-bottom: 28px; text-align: left; }
+  .svc { display: flex; align-items: center; gap: 12px; font-size: 14px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #333; transition: background 0.4s; flex-shrink: 0; }
+  .dot.ready { background: #2dd4a8; }
+  .svc-label { color: #888; transition: color 0.4s; }
+  .svc.ready .svc-label { color: #e0e0e0; }
+  .progress-track { height: 3px; background: #1a1d26; border-radius: 2px; overflow: hidden; margin-bottom: 16px; }
+  .progress-fill { height: 100%; width: 0%; background: #2dd4a8; border-radius: 2px; transition: width 0.5s ease; }
+  .status-text { font-size: 12px; color: #555; }
+</style>
+</head>
+<body>
+<div class="launch-shell">
+  <div class="logo">C</div>
+  <h1>Starting CROCbox</h1>
+  <div class="subtitle">Preparing your secure AI environment</div>
+  <div class="services">
+    <div class="svc" id="svcProxy"><div class="dot" id="dotProxy"></div><span class="svc-label">CARD Proxy</span></div>
+    <div class="svc" id="svcGateway"><div class="dot" id="dotGateway"></div><span class="svc-label">Gateway</span></div>
+    <div class="svc" id="svcDashboard"><div class="dot" id="dotDashboard"></div><span class="svc-label">Dashboard</span></div>
+  </div>
+  <div class="progress-track"><div class="progress-fill" id="progressFill"></div></div>
+  <div class="status-text" id="statusText">Checking services</div>
+</div>
+<script>
+(function(){
+  var fill=document.getElementById('progressFill');
+  var statusText=document.getElementById('statusText');
+  var proxyReady=false,gatewayReady=false,dashReady=false;
+  function markReady(id){
+    var svc=document.getElementById(id);
+    var dot=svc.querySelector('.dot');
+    svc.classList.add('ready');
+    dot.classList.add('ready');
+  }
+  function updateProgress(){
+    var count=[proxyReady,gatewayReady,dashReady].filter(Boolean).length;
+    fill.style.width=(count/3*100)+'%';
+    if(count===3){
+      statusText.textContent='All systems go!';
+      setTimeout(function(){ window.location.href='/'; },800);
+    }
+  }
+  // Dashboard is serving this page, so it is ready
+  dashReady=true;markReady('svcDashboard');
+  statusText.textContent='Waiting for services';
+  fill.style.width='33%';
+  var poll=setInterval(function(){
+    if(!proxyReady){
+      fetch('http://127.0.0.1:18790/crocbox/health',{mode:'no-cors'})
+        .then(function(){proxyReady=true;markReady('svcProxy');statusText.textContent='CARD Proxy ready';updateProgress();})
+        .catch(function(){});
+    }
+    if(!gatewayReady){
+      fetch('http://127.0.0.1:18789/',{mode:'no-cors'})
+        .then(function(){gatewayReady=true;markReady('svcGateway');statusText.textContent='Gateway ready';updateProgress();})
+        .catch(function(){});
+    }
+    if(proxyReady&&gatewayReady){clearInterval(poll);}
+  },1000);
+  setTimeout(function(){
+    if(!proxyReady||!gatewayReady){
+      clearInterval(poll);
+      statusText.textContent='Some services failed to start. Check logs.';
+      statusText.style.color='#c0392b';
+    }
+  },30000);
+})();
+</script>
+</body>
+</html>

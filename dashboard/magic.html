@@ -114,6 +114,13 @@
 .chat-consent-inner .cc-detail { font-size: 12px; color: var(--text-dim); margin-bottom: 12px; }
 .chat-consent-inner .cc-actions { display: flex; gap: 8px; }
 .chat-consent-inner .cc-note { font-size: 11px; color: var(--text-xdim); font-style: italic; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
+.chat-consent-inner .cc-target { font-family: var(--mono); font-size: 12px; color: var(--text); background: var(--surface-2); border: 1px solid var(--border); border-radius: var(--radius); padding: 6px 10px; margin-bottom: 10px; word-break: break-all; }
+.chat-consent-inner .cc-warning { font-size: 12px; color: var(--danger, #c0392b); font-weight: 600; margin-bottom: 10px; padding: 6px 10px; background: rgba(192,57,43,0.08); border-radius: var(--radius); }
+.cc-timeout-bar { height: 3px; background: var(--surface-2); border-radius: 2px; overflow: hidden; margin-bottom: 12px; }
+.cc-timeout-fill { height: 100%; width: 0%; background: var(--accent); border-radius: 2px; transition: width 1s linear; }
+.cc-decided { padding: 12px 0; font-size: 14px; font-weight: 600; text-align: center; }
+.cc-allowed { color: var(--accent); }
+.cc-denied { color: var(--danger, #c0392b); }
 .chat-input-area { padding: 12px 16px 16px; border-top: 1px solid var(--border); background: var(--surface); }
 .preloaded-hint { font-size: 11px; color: var(--accent); margin-bottom: 8px; font-weight: 600; letter-spacing: 0.04em; }
 .chat-input-row { display: flex; gap: 8px; }
@@ -165,6 +172,7 @@
           <div class="consent-source">🛡️ CROCbox — Action Intercepted</div>
           <div class="consent-question" id="consentQuestion">Your AI wants to read your Desktop folder</div>
           <div class="consent-detail" id="consentDetail">Action: Read filesystem · Target: ~/Desktop</div>
+          <div class="cc-timeout-bar" style="margin-top:12px;"><div class="cc-timeout-fill" id="p1TimeoutFill"></div></div>
         </div>
         <div class="consent-actions">
           <button class="btn btn-accent btn-lg" id="btnAllow">✓ Allow</button>
@@ -281,7 +289,24 @@
 'use strict';
 let currentRequestId=null,scanResult=null,pendingOrganize=null,ws=null;
 const states=['idle','awaiting-consent','consent-prompt','scanning','result','organize-consent','organizing','done','denied','fallback'];
+window._crocLevel='beginner';
+fetch('/api/config').then(r=>r.json()).then(d=>{window._crocLevel=d.crocLevel||'beginner';}).catch(()=>{});
 function showState(name){states.forEach(s=>{const el=document.getElementById('state-'+s);if(el)el.style.setProperty('display',(s===name)?'block':'none','important');});}
+let p1Timer=null;
+function startP1Timeout(){
+  if(p1Timer)clearInterval(p1Timer);
+  const fill=document.getElementById('p1TimeoutFill');
+  if(!fill)return;
+  fill.style.width='0%';fill.style.background='var(--accent)';
+  let elapsed=0;const total=(window._crocLevel==='beginner')?30:60;
+  p1Timer=setInterval(()=>{
+    elapsed++;const pct=(elapsed/total)*100;
+    fill.style.width=pct+'%';
+    if(pct>=83)fill.style.background='var(--danger,#c0392b)';
+    else if(pct>=66)fill.style.background='#f39c12';
+    if(elapsed>=total){clearInterval(p1Timer);p1Timer=null;showState('denied');}
+  },1000);
+}
 function connectProxyWS(){
   try{
     ws=new WebSocket('ws://127.0.0.1:18790/crocbox/consent');
@@ -296,56 +321,86 @@ function handleProxyMessage(msg){
   if(msg.type==='consent_request'){
     currentRequestId=msg.request_id;
     const actionLabels={
-      'web_search':'search the web',
-      'filesystem':'read your Desktop folder',
-      'api_call':'make an external request',
-      'shell':'run a command'
+      'api_call':'search the web',
+      'filesystem':'access a file on your system',
+      'filesystem-read':'read a file on your system',
+      'filesystem-write':'write a file to your system',
+      'shell_exec':'run a command on your system'
     };
     const actionLabel=actionLabels[msg.action]||msg.action||'take an action';
     // If Phase 2 chat is visible, show consent inline in chat
     const phase2=document.getElementById('phase2Shell');
     if(phase2&&phase2.style.display!=='none'){
-      showChatConsent(msg.request_id,actionLabel,msg.target||'');
+      showChatConsent(msg.request_id,actionLabel,msg.target||'',msg.action||'');
     } else {
       document.getElementById('consentQuestion').textContent='Your AI wants to '+actionLabel;
       document.getElementById('consentDetail').textContent='Action: '+(msg.action||'unknown')+' · Target: '+(msg.target||'unknown');
-      showState('consent-prompt');
+      showState('consent-prompt');startP1Timeout();
     }
     return;
   }
   if(msg.type==='consent_resolved'&&msg.result==='timeout'){showState('denied');}
 }
-function showChatConsent(requestId,actionLabel,target){
+function showChatConsent(requestId,actionLabel,target,actionType){
   const container=document.getElementById('chatMessages');
   if(!container)return;
   const existing=document.getElementById('activeChatConsent');
   if(existing)existing.remove();
+  const isShell=actionType==='shell_exec';
+  const shellWarning=isShell?'<div class="cc-warning">⚠️ This command will execute on your system. Review carefully.</div>':'';
+  const targetDisplay=target?`<div class="cc-target">${target}</div>`:'';
   const wrap=document.createElement('div');
   wrap.id='activeChatConsent';
   wrap.className='chat-consent-box';
   wrap.innerHTML=`
     <div class="chat-consent-inner">
-      <div class="cc-source">🛡️ CROCbox — Action Intercepted</div>
+      <div class="cc-source">CROCBOX — ACTION INTERCEPTED</div>
       <div class="cc-question">Your AI wants to ${actionLabel}</div>
-      <div class="cc-detail">Target: ${target}</div>
+      ${targetDisplay}
+      ${shellWarning}
+      <div class="cc-timeout-bar"><div class="cc-timeout-fill" id="ccTimeoutFill"></div></div>
       <div class="cc-actions">
-        <button class="btn btn-accent" id="ccAllow">✓ Allow</button>
-        <button class="btn btn-red" id="ccDeny">✕ Deny</button>
+        <button class="btn btn-accent" id="ccAllow" style="flex:1;">✓ Allow</button>
+        <button class="btn btn-red" id="ccDeny" style="flex:1;">✕ Deny</button>
       </div>
       <div class="cc-note">CROCbox intercepted this before any data was sent. Your choice.</div>
     </div>`;
   container.appendChild(wrap);
   container.scrollTop=container.scrollHeight;
+  /* Timeout countdown */
+  const timeoutSec=(window._crocLevel==='beginner')?30:60;
+  const fill=wrap.querySelector('#ccTimeoutFill');
+  let elapsed=0;
+  const timer=setInterval(()=>{
+    elapsed++;
+    const pct=(elapsed/timeoutSec)*100;
+    fill.style.width=pct+'%';
+    if(pct>=83)fill.style.background='var(--danger,#c0392b)';
+    else if(pct>=66)fill.style.background='#f39c12';
+    if(elapsed>=timeoutSec){clearInterval(timer);wrap.remove();}
+  },1000);
   wrap.querySelector('#ccAllow').addEventListener('click',()=>{
+    clearInterval(timer);
     sendConsentResponse(requestId,'allow');
     currentRequestId=null;
-    wrap.remove();
+    showPostDecision(wrap,'allow');
   });
   wrap.querySelector('#ccDeny').addEventListener('click',()=>{
+    clearInterval(timer);
     sendConsentResponse(requestId,'deny');
     currentRequestId=null;
-    wrap.remove();
+    showPostDecision(wrap,'deny');
   });
+}
+function showPostDecision(wrap,decision){
+  const inner=wrap.querySelector('.chat-consent-inner');
+  if(!inner){wrap.remove();return;}
+  if(decision==='allow'){
+    inner.innerHTML='<div class="cc-decided cc-allowed">✅ Approved — executing…</div>';
+  } else {
+    inner.innerHTML='<div class="cc-decided cc-denied">❌ Denied — I respect your choice completely.</div>';
+  }
+  setTimeout(()=>wrap.remove(),3000);
 }
 function sendConsentResponse(requestId,decision){
   if(!ws||ws.readyState!==WebSocket.OPEN)return;
@@ -355,10 +410,10 @@ document.getElementById('btnStartDemo').addEventListener('click',async()=>{
   let proxyRunning=false;
   try{const r=await fetch('/api/magic-demo/status');const d=await r.json();proxyRunning=d.proxyRunning;}catch{}
   if(!proxyRunning){showState('fallback');return;}
-  showState('consent-prompt');
+  showState('consent-prompt');startP1Timeout();
 });
 document.getElementById('btnAllow').addEventListener('click',async()=>{
-  if(currentRequestId){sendConsentResponse(currentRequestId,'allow');currentRequestId=null;}
+  if(p1Timer){clearInterval(p1Timer);p1Timer=null;}if(currentRequestId){sendConsentResponse(currentRequestId,'allow');currentRequestId=null;}
   states.forEach(s=>{const el=document.getElementById('state-'+s);if(el)el.style.setProperty('display','none','important');});
   const loadingEl=document.createElement('div');
   loadingEl.id='scan-loading';
@@ -386,7 +441,7 @@ document.getElementById('btnAllow').addEventListener('click',async()=>{
   showState('fallback');
 });
 document.getElementById('btnDeny').addEventListener('click',()=>{
-  if(currentRequestId){sendConsentResponse(currentRequestId,'deny');currentRequestId=null;}
+  if(p1Timer){clearInterval(p1Timer);p1Timer=null;}if(currentRequestId){sendConsentResponse(currentRequestId,'deny');currentRequestId=null;}
   showState('denied');
 });
 document.getElementById('btnOrganizeAllow').addEventListener('click',async()=>{

@@ -212,7 +212,7 @@ for i in $(seq 1 20); do
 done
 
 # Open browser
-open "http://127.0.0.1:3000"
+open "http://127.0.0.1:3000/launch.html"
 
 # Cleanup on quit
 cleanup() {
