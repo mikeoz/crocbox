@@ -66,7 +66,8 @@
   .back-link { font-size: 13px; color: var(--accent, teal); cursor: pointer; margin-bottom: 12px; display: inline-block; }
 </style>
 </head>
-<body>
+<body data-page="data">
+<div class="shell">
 <div class="container" style="max-width: 720px; margin: 0 auto; padding: 24px;">
   <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
     <h1 style="margin: 0; font-size: 22px;">My Data</h1>
@@ -250,5 +251,7 @@
   loadRooms();
 })();
 </script>
+</div>
+<script src="/shared/nav.js"></script>
 </body>
 </html>

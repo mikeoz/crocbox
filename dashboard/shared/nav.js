@@ -15,6 +15,8 @@
     { href: '/data.html',     label: 'My Data',    page: 'data' },
     { href: '/agents.html',   label: 'My AI',      page: 'agents' },
     { href: '/permissions.html', label: 'My Control', page: 'permissions' },
+    { href: '/magic.html',  label: 'Magic Moment', page: 'magic' },
+    { href: '/audit',       label: 'Audit Log',    page: 'audit' },
     { href: '/settings.html', label: 'Settings',   page: 'settings' },
   ];
 

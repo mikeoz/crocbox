@@ -135,7 +135,8 @@
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
 </style>
 </head>
-<body>
+<body data-page="magic">
+<div class="shell">
 <a class="skip-link" href="/index.html">Skip to Dashboard →</a>
 <div class="magic-shell">
   <div class="magic-header">
@@ -312,7 +313,7 @@ function connectProxyWS(){
     ws=new WebSocket('ws://127.0.0.1:18790/crocbox/consent');
     ws.addEventListener('open',()=>{ws.send(JSON.stringify({type:'dashboard_connect',timestamp:new Date().toISOString()}));});
     ws.addEventListener('message',(evt)=>{let msg;try{msg=JSON.parse(evt.data);}catch{return;}handleProxyMessage(msg);});
-    ws.addEventListener('close',()=>{ws=null;setTimeout(connectProxyWS,2000);});
+    ws.addEventListener('close',(ev)=>{ws=null;if(ev.code===1000&&ev.reason&&ev.reason.includes('Replaced'))return;setTimeout(connectProxyWS,2000);});
     ws.addEventListener('error',()=>{ws=null;});
   }catch(e){ws=null;setTimeout(connectProxyWS,2000);}
 }
@@ -449,7 +450,7 @@ document.getElementById('btnOrganizeAllow').addEventListener('click',async()=>{
   showState('organizing');
   if(!pendingOrganize){showState('done');return;}
   let orgResult;
-  try{const resp=await fetch('/api/magic-demo/organize',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dest:pendingOrganize.dest})});orgResult=await resp.json();}catch{orgResult={success:false};}
+  try{const resp=await fetch('/api/magic-demo/organize?pre_approved=true',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dest:pendingOrganize.dest})});orgResult=await resp.json();}catch{orgResult={success:false};}
   document.getElementById('organizeStatusText').textContent=orgResult.success?`Moved ${orgResult.moved} file${orgResult.moved!==1?'s':''} to ${orgResult.dest}/`:'Organization complete.';
   setTimeout(()=>showState('done'),800);
 });
@@ -609,5 +610,7 @@ document.getElementById('chatInput').addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); document.getElementById('btnAskAI').click(); }
 });
 </script>
+</div>
+<script src="/shared/nav.js"></script>
 </body>
 </html>

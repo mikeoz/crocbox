@@ -416,14 +416,17 @@
           }
         } catch {}
       };
-
-      ws.onclose = () => {
+      ws.onclose = (ev) => {
+        if (ev.code === 1000 && ev.reason && ev.reason.includes('Replaced')) {
+          return;
+        }
         proxyDot.className = 'dot dot-dim';
         proxyLabel.textContent = 'CARD Proxy not running';
         if (wsRetryCount < 3) {
           wsRetryCount++;
           setTimeout(connectWS, 5000);
         }
+      };
       };
 
       ws.onerror = () => {
