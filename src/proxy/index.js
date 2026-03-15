@@ -52,7 +52,11 @@ const CONFIG = {
   veUrl: process.env.VERIFY_CARD_URL,
   veApiKey: process.env.VERIFY_API_KEY,
   agentId: process.env.CROCBOX_AGENT_ID,
-  consentTimeoutMs: parseInt(process.env.CROCBOX_CONSENT_TIMEOUT || "300000"), // 5 min
+  consentTimeoutMs: (() => {
+    const level = (process.env.CROC_LEVEL || "beginner").toLowerCase();
+    const timeouts = { beginner: 30000, intermediate: 60000, expert: 60000, partner: 60000 };
+    return parseInt(process.env.CROCBOX_CONSENT_TIMEOUT || String(timeouts[level] || 30000));
+  })(), // WP-5: Beginner 30s, Intermediate/Expert 60s
   dashboardPort: parseInt(process.env.CROCBOX_DASHBOARD_PORT || "3000"),
 };
 
