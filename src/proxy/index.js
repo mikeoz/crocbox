@@ -27,6 +27,23 @@ const { AuditLogger } = require("./audit-logger");
 const { ConsentManager } = require("./consent");
 const veClient = require("../../card_ve_client");
 
+// ── B.4: Map Proxy action types to VE operation types ──
+function mapToVeOp(actionType, target) {
+  const map = {
+    "api_call": "web_search",
+    "web_search": "web_search",
+    "filesystem": "filesystem_read",
+    "filesystem-read": "filesystem_read",
+    "filesystem-write": "filesystem_write",
+    "filesystem_read": "filesystem_read",
+    "filesystem_write": "filesystem_write",
+    "shell_exec": "shell_exec",
+    "shell": "shell_exec",
+    "email": "api_call",
+  };
+  return map[actionType] || "api_call";
+}
+
 // ── Configuration ─────────────────────────────────────────────────
 const CONFIG = {
   proxyPort: parseInt(process.env.CROCBOX_PROXY_PORT || "18790"),
@@ -91,7 +108,7 @@ async function handleRequest(req, res) {
         let veDecision = null;
         try {
           const sessionId = process.env.CROCBOX_SESSION_ID || "session-" + Date.now();
-          veDecision = await veClient.verify(action.type, null, sessionId);
+          veDecision = await veClient.verify(mapToVeOp(action.type, action.target), null, sessionId);
           console.log("  [VE] verify() returned: " + veDecision.decision + (veDecision.decision_id ? " (id: " + veDecision.decision_id + ")" : ""));
         } catch (veErr) {
           console.log("  [VE] verify() error (fail-closed): " + veErr.message);
@@ -231,7 +248,7 @@ async function handleRequest(req, res) {
   let veDecisionMain = null;
   try {
     const sessionId = process.env.CROCBOX_SESSION_ID || "session-" + Date.now();
-    veDecisionMain = await veClient.verify(action.type, null, sessionId);
+    veDecisionMain = await veClient.verify(mapToVeOp(action.type, action.target), null, sessionId);
     console.log(`  [VE] verify() returned: ${veDecisionMain.decision}${veDecisionMain.decision_id ? " (id: " + veDecisionMain.decision_id + ")" : ""}`);
   } catch (veErr) {
     console.log(`  [VE] verify() error (fail-closed): ${veErr.message}`);
