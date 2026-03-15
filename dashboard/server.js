@@ -672,34 +672,43 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, '127.0.0.1', async () => {
-  console.log('[DASHBOARD] CROCbox running at http://127.0.0.1:' + PORT);
-  console.log('[DASHBOARD]   Home:       http://127.0.0.1:' + PORT + '/');
-  console.log('[DASHBOARD]   First Run:  http://127.0.0.1:' + PORT + '/first-run.html');
-  console.log('[DASHBOARD]   Consent:    http://127.0.0.1:' + PORT + '/consent');
-  console.log('[DASHBOARD]   Audit Log:  http://127.0.0.1:' + PORT + '/audit');
-  console.log('[DASHBOARD]   Scanner:    http://127.0.0.1:' + PORT + '/scan');
+// ── F-B5-01 fix: VE status check runs BEFORE server accepts requests ──
+let veStartupStatus = null; // Module-level: accessible to request handlers
 
-  // ── B.4: VE startup check ──
+(async () => {
   try {
     const env = readEnv();
     const agentId = env.VE_AGENT_ID;
     if (agentId) {
       console.log('[VE] Checking agent status on Trust Network...');
       const status = await veClient.checkStatus(agentId);
-      console.log('[VE] Agent ' + agentId + ': ' + (status.status || JSON.stringify(status)));
-      if (status.status === 'active') {
+      veStartupStatus = status.status || 'unknown';
+      console.log('[VE] Agent ' + agentId + ': ' + veStartupStatus);
+      if (veStartupStatus === 'active') {
         console.log('[VE] \u2713 Trust Network: Agent verified and active');
-      } else if (status.status === 'revoked') {
+      } else if (veStartupStatus === 'revoked') {
         console.log('[VE] \u2715 Trust Network: Agent has been revoked \u2014 CARD operations will be denied');
       } else {
-        console.log('[VE] ? Trust Network: Status = ' + (status.status || 'unknown'));
+        console.log('[VE] ? Trust Network: Status = ' + veStartupStatus);
       }
     } else {
+      veStartupStatus = 'not-enrolled';
       console.log('[VE] Agent not enrolled with Trust Network. First-run enrollment required.');
     }
   } catch (veErr) {
+    veStartupStatus = 'unreachable';
     console.log('[VE] Startup check failed (non-fatal): ' + veErr.message);
     console.log('[VE] CROCbox will operate in local-only mode until VE is reachable.');
   }
-});
+
+  // Server starts AFTER VE check completes
+  server.listen(PORT, '127.0.0.1', () => {
+    console.log('[DASHBOARD] CROCbox running at http://127.0.0.1:' + PORT);
+    console.log('[DASHBOARD]   Home:       http://127.0.0.1:' + PORT + '/');
+    console.log('[DASHBOARD]   First Run:  http://127.0.0.1:' + PORT + '/first-run.html');
+    console.log('[DASHBOARD]   Consent:    http://127.0.0.1:' + PORT + '/consent');
+    console.log('[DASHBOARD]   Audit Log:  http://127.0.0.1:' + PORT + '/audit');
+    console.log('[DASHBOARD]   Scanner:    http://127.0.0.1:' + PORT + '/scan');
+    console.log('[DASHBOARD]   VE Status:  ' + veStartupStatus);
+  });
+})();
