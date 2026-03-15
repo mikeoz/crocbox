@@ -18,6 +18,10 @@ const http = require("http");
 const httpProxy = require("http-proxy");
 const { WebSocketServer } = require("ws");
 const { classifyAction, ACTION_TYPES } = require("./classify");
+
+// Load .env before CONFIG is built
+require("dotenv").config();
+
 const { checkAuthorization } = require("./ve-client");
 const { AuditLogger } = require("./audit-logger");
 const { ConsentManager } = require("./consent");
@@ -337,6 +341,6 @@ module.exports = { start, CONFIG };
 
 // Run if called directly
 if (require.main === module) {
-  require("dotenv").config();
+
   start();
 }
