@@ -25,6 +25,7 @@ require("dotenv").config();
 const { checkAuthorization } = require("./ve-client");
 const { AuditLogger } = require("./audit-logger");
 const { ConsentManager } = require("./consent");
+const veClient = require("../../card_ve_client");
 
 // ── Configuration ─────────────────────────────────────────────────
 const CONFIG = {
@@ -85,8 +86,27 @@ async function handleRequest(req, res) {
         catch { action = { type: "filesystem", target: "~/Desktop", summary: "Magic demo" }; }
         console.log("  [MAGIC-CONSENT] Request for " + action.type + ": " + action.target);
         audit.log({ action: action.type, target: action.target, result: "intercepted", reason: "magic-demo-request" });
+
+        // ── B.4 VE Gate: verify before consent ──
+        let veDecision = null;
+        try {
+          const sessionId = process.env.CROCBOX_SESSION_ID || "session-" + Date.now();
+          veDecision = await veClient.verify(action.type, null, sessionId);
+          console.log("  [VE] verify() returned: " + veDecision.decision + (veDecision.decision_id ? " (id: " + veDecision.decision_id + ")" : ""));
+        } catch (veErr) {
+          console.log("  [VE] verify() error (fail-closed): " + veErr.message);
+          veDecision = { decision: "denied", decision_id: null, reason: "ve-error", source: "ve_error" };
+        }
+        if (veDecision.decision !== "approved") {
+          audit.log({ action: action.type, target: action.target, result: "blocked", reason: "ve-denied", detail: veDecision.reason || "VE did not approve", decision_id: veDecision.decision_id || null });
+          res.writeHead(403, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ decision: "deny", reason: "ve-denied", detail: veDecision.reason }));
+          return;
+        }
+        // ── VE approved — proceed to local consent ──
+
         const decision = await consent.requestConsent({ type: action.type, target: action.target, summary: action.summary });
-        audit.log({ action: action.type, target: action.target, result: (decision === "allow" || decision === "remember") ? "allowed" : "blocked", reason: "magic-demo-consent:" + decision });
+        audit.log({ action: action.type, target: action.target, result: (decision === "allow" || decision === "remember") ? "allowed" : "blocked", reason: "magic-demo-consent:" + decision, decision_id: veDecision ? veDecision.decision_id : null });
         res.writeHead(200, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ decision }));
       });
@@ -207,6 +227,24 @@ async function handleRequest(req, res) {
   // Need real-time consent
   console.log(`  [CONSENT] Requesting consent for ${action.type}: ${action.target}`);
 
+  // ── B.4 VE Gate: verify before consent ──
+  let veDecisionMain = null;
+  try {
+    const sessionId = process.env.CROCBOX_SESSION_ID || "session-" + Date.now();
+    veDecisionMain = await veClient.verify(action.type, null, sessionId);
+    console.log(`  [VE] verify() returned: ${veDecisionMain.decision}${veDecisionMain.decision_id ? " (id: " + veDecisionMain.decision_id + ")" : ""}`);
+  } catch (veErr) {
+    console.log(`  [VE] verify() error (fail-closed): ${veErr.message}`);
+    veDecisionMain = { decision: "denied", decision_id: null, reason: "ve-error", source: "ve_error" };
+  }
+  if (veDecisionMain.decision !== "approved") {
+    audit.log({ action: action.type, target: action.target, result: "blocked", reason: "ve-denied", detail: veDecisionMain.reason || "VE did not approve", decision_id: veDecisionMain.decision_id || null });
+    res.writeHead(403, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "CROCbox: Action blocked. Trust Network did not authorize.", action: action.type, target: action.target }));
+    return;
+  }
+  // ── VE approved — proceed to local consent ──
+
   try {
     const decision = await consent.requestConsent(action);
 
@@ -217,6 +255,7 @@ async function handleRequest(req, res) {
         target: action.target,
         result: "allowed",
         reason: "user-consent",
+        decision_id: veDecisionMain ? veDecisionMain.decision_id : null,
       });
       return proxy.web(req, res);
     }
@@ -231,6 +270,7 @@ async function handleRequest(req, res) {
         target: action.target,
         result: "allowed",
         reason: "user-consent-remember",
+        decision_id: veDecisionMain ? veDecisionMain.decision_id : null,
       });
       return proxy.web(req, res);
     }
@@ -244,6 +284,7 @@ async function handleRequest(req, res) {
       target: action.target,
       result: "blocked",
       reason: `user-${decision}`,
+      decision_id: veDecisionMain ? veDecisionMain.decision_id : null,
     });
     res.writeHead(403, { "Content-Type": "application/json" });
     res.end(
@@ -262,6 +303,7 @@ async function handleRequest(req, res) {
       result: "blocked",
       reason: "consent-error",
       detail: err.message,
+      decision_id: veDecisionMain ? veDecisionMain.decision_id : null,
     });
     res.writeHead(503, { "Content-Type": "application/json" });
     res.end(

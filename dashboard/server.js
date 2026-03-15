@@ -38,6 +38,7 @@ const auditApi = require('./audit-api');
 const scannerApi = require('./scanner-api');
 const magicApi   = require('./magic-api');
 const dataRoomsApi = require('./data-rooms-api');
+const veClient = require("../card_ve_client");
 const PORT = 3000;
 const DASHBOARD_DIR = __dirname;
 const ENV_PATH = (() => {
@@ -554,6 +555,88 @@ const server = http.createServer((req, res) => {
   if (pathname === '/api/data-rooms/open' && req.method === 'POST') return dataRoomsApi.handleOpenRoom(req, res);
   if (pathname === '/api/data-rooms/history' && req.method === 'GET') return dataRoomsApi.handleRoomHistory(req, res);
   if (pathname === '/api/data-rooms/resolve' && req.method === 'GET') return dataRoomsApi.handleResolve(req, res);
+  // ── B.4: VE Enrollment (first-run) ──
+  if (pathname === '/api/ve/enroll' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body);
+        const accountId = data.account_id || 'crocbox-user-' + Date.now();
+        const level = data.level || readEnv().CROC_LEVEL || 'beginner';
+        console.log('[VE] Enrolling with VE: account=' + accountId + ', level=' + level);
+        const result = await veClient.enroll(accountId, level);
+        if (result && result.agent_id) {
+          console.log('[VE] Enrolled: agent_id=' + result.agent_id + ', card_id=' + result.card_id);
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: true, agent_id: result.agent_id, card_id: result.card_id }));
+        } else {
+          console.log('[VE] Enrollment failed: ' + JSON.stringify(result));
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ success: false, error: 'Enrollment failed', detail: result }));
+        }
+      } catch (err) {
+        console.log('[VE] Enrollment error: ' + err.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
+  // ── B.4: VE Status Check (startup) ──
+  if (pathname === '/api/ve/status' && req.method === 'GET') {
+    (async () => {
+      try {
+        const env = readEnv();
+        const agentId = env.VE_AGENT_ID;
+        if (!agentId) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ enrolled: false, status: 'not-enrolled' }));
+        }
+        const result = await veClient.checkStatus(agentId);
+        console.log('[VE] Status check: ' + JSON.stringify(result));
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ enrolled: true, agent_id: agentId, ...result }));
+      } catch (err) {
+        console.log('[VE] Status check error: ' + err.message);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ enrolled: true, status: 've-unreachable', error: err.message }));
+      }
+    })();
+    return;
+  }
+
+  // ── B.4: VE Level Sync ──
+  if (pathname === '/api/ve/sync-level' && req.method === 'POST') {
+    let body = '';
+    req.on('data', c => { body += c; });
+    req.on('end', async () => {
+      try {
+        const data = JSON.parse(body);
+        const env = readEnv();
+        const agentId = env.VE_AGENT_ID;
+        if (!agentId) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          return res.end(JSON.stringify({ success: false, error: 'Not enrolled with VE' }));
+        }
+        const level = (data.level || 'beginner').toLowerCase();
+        console.log('[VE] Syncing level change to VE: agent=' + agentId + ', level=' + level);
+        let envContent = '';
+        try { envContent = fs.readFileSync(ENV_PATH, 'utf-8'); } catch {}
+        const lines = envContent.split('\n').filter(l => !l.startsWith('CROC_LEVEL='));
+        lines.push('CROC_LEVEL=' + level);
+        fs.writeFileSync(ENV_PATH, lines.join('\n'), 'utf-8');
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, level, ve_synced: false, note: 'VE level sync pending OPS endpoint' }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
   if (pathname.startsWith('/api/magic-demo')) return magicApi.handleMagicRequest(req, res);
 
   let filePath;
@@ -589,11 +672,34 @@ const server = http.createServer((req, res) => {
   });
 });
 
-server.listen(PORT, '127.0.0.1', () => {
+server.listen(PORT, '127.0.0.1', async () => {
   console.log('[DASHBOARD] CROCbox running at http://127.0.0.1:' + PORT);
   console.log('[DASHBOARD]   Home:       http://127.0.0.1:' + PORT + '/');
   console.log('[DASHBOARD]   First Run:  http://127.0.0.1:' + PORT + '/first-run.html');
   console.log('[DASHBOARD]   Consent:    http://127.0.0.1:' + PORT + '/consent');
   console.log('[DASHBOARD]   Audit Log:  http://127.0.0.1:' + PORT + '/audit');
   console.log('[DASHBOARD]   Scanner:    http://127.0.0.1:' + PORT + '/scan');
+
+  // ── B.4: VE startup check ──
+  try {
+    const env = readEnv();
+    const agentId = env.VE_AGENT_ID;
+    if (agentId) {
+      console.log('[VE] Checking agent status on Trust Network...');
+      const status = await veClient.checkStatus(agentId);
+      console.log('[VE] Agent ' + agentId + ': ' + (status.status || JSON.stringify(status)));
+      if (status.status === 'active') {
+        console.log('[VE] \u2713 Trust Network: Agent verified and active');
+      } else if (status.status === 'revoked') {
+        console.log('[VE] \u2715 Trust Network: Agent has been revoked \u2014 CARD operations will be denied');
+      } else {
+        console.log('[VE] ? Trust Network: Status = ' + (status.status || 'unknown'));
+      }
+    } else {
+      console.log('[VE] Agent not enrolled with Trust Network. First-run enrollment required.');
+    }
+  } catch (veErr) {
+    console.log('[VE] Startup check failed (non-fatal): ' + veErr.message);
+    console.log('[VE] CROCbox will operate in local-only mode until VE is reachable.');
+  }
 });
