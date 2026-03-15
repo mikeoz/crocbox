@@ -57,6 +57,7 @@ class AuditLogger {
       result: entry.result,
       reason: entry.reason,
       detail: entry.detail || null,
+      decision_id: entry.decision_id || null,
       prev_hash: this.prevHash,
     };
 
