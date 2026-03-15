@@ -61,6 +61,7 @@ function normalizeEntry(raw, index) {
     hash:         raw.hash || raw.entry_hash || null,
     prevHash:     raw.prevHash || raw.prev_hash || raw.previous_hash || null,
     requestId:    raw.requestId || raw.request_id || raw.id || null,
+    decision_id:  raw.decision_id || null,
   };
 }
 

@@ -461,12 +461,13 @@
           <th>Target</th>
           <th>CARD Result</th>
           <th>Decision</th>
+          <th>VE Decision</th>
           <th>Outcome</th>
           <th>Hash</th>
         </tr>
       </thead>
       <tbody id="logBody">
-        <tr><td colspan="7" class="loading"><div class="spinner"></div><br>Loading audit log…</td></tr>
+        <tr><td colspan="8" class="loading"><div class="spinner"></div><br>Loading audit log…</td></tr>
       </tbody>
     </table>
   </div>
@@ -527,7 +528,7 @@
       allEntries = await res.json();
       applyFilters();
     } catch (err) {
-      $body.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="icon">⚠</div><p>Could not load audit log.<br>' + escHtml(err.message) + '</p></td></tr>';
+      $body.innerHTML = '<tr><td colspan="8" class="empty-state"><div class="icon">⚠</div><p>Could not load audit log.<br>' + escHtml(err.message) + '</p></td></tr>';
     }
   }
 
@@ -655,7 +656,7 @@
     const slice = filtered.slice(start, start + PAGE_SIZE);
 
     if (slice.length === 0) {
-      $body.innerHTML = '<tr><td colspan="7" class="empty-state"><div class="icon">📋</div><p>No log entries match your filters.</p></td></tr>';
+      $body.innerHTML = '<tr><td colspan="8" class="empty-state"><div class="icon">📋</div><p>No log entries match your filters.</p></td></tr>';
       return;
     }
 
@@ -670,6 +671,7 @@
         <td class="target-cell">${escHtml(e.target || '—')}</td>
         <td><span class="result-badge ${res}">${escHtml(prettyResult(e.cardResult))}</span></td>
         <td class="decision-cell">${escHtml(prettyDecision(e.userDecision))}</td>
+        <td class="ve-id-cell" style="font-family:var(--mono,monospace);font-size:11px;color:var(--text-xdim,#666);">${e.decision_id ? escHtml(e.decision_id) : '<span style="opacity:0.3">—</span>'}</td>
         <td>${escHtml(prettyOutcome(e.outcome))}</td>
         <td class="hash-cell${isBreak ? ' chain-break' : ''}" data-hash="${escAttr(e.hash || '')}" data-prev="${escAttr(e.prevHash || '')}">${hashShort}</td>
       </tr>`;
