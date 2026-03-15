@@ -22,7 +22,7 @@ const { classifyAction, ACTION_TYPES } = require("./classify");
 // Load .env before CONFIG is built
 require("dotenv").config();
 
-const { checkAuthorization } = require("./ve-client");
+// const { checkAuthorization } = require("./ve-client"); // REMOVED: F-B5-02 — legacy VE path replaced by veClient.verify()
 const { AuditLogger } = require("./audit-logger");
 const { ConsentManager } = require("./consent");
 const veClient = require("../../card_ve_client");
@@ -155,96 +155,7 @@ async function handleRequest(req, res) {
     `  [INTERCEPT] ${action.type}: ${action.target} — ${action.summary}`
   );
 
-  // Check VE authorization
-  let veResult;
-  try {
-    veResult = await checkAuthorization(
-      CONFIG.veUrl,
-      CONFIG.veApiKey,
-      CONFIG.agentId
-    );
-  } catch (err) {
-    // Fail-closed: VE unreachable = block
-    console.log(`  [BLOCKED] VE unreachable: ${err.message}`);
-    audit.log({
-      action: action.type,
-      target: action.target,
-      result: "blocked",
-      reason: "ve-unreachable",
-      detail: err.message,
-    });
-    res.writeHead(503, { "Content-Type": "application/json" });
-    res.end(
-      JSON.stringify({
-        error:
-          "CROCbox: Action blocked. Verification service unavailable. Fail-closed.",
-        action: action.type,
-        target: action.target,
-      })
-    );
-    return;
-  }
-
-  // VE returned denied
-  if (
-    veResult.entity_status !== "active" ||
-    !veResult.active_use_cards ||
-    veResult.active_use_cards.length === 0
-  ) {
-    console.log(`  [BLOCKED] No active authorization for agent`);
-    audit.log({
-      action: action.type,
-      target: action.target,
-      result: "blocked",
-      reason: "ve-denied",
-      detail: `entity_status: ${veResult.entity_status}, active_cards: ${
-        veResult.active_use_cards ? veResult.active_use_cards.length : 0
-      }`,
-    });
-    res.writeHead(403, { "Content-Type": "application/json" });
-    res.end(
-      JSON.stringify({
-        error:
-          "CROCbox: Action blocked. Agent does not have active authorization.",
-        action: action.type,
-        target: action.target,
-        entity_status: veResult.entity_status,
-      })
-    );
-    return;
-  }
-
-  // Check if this action type is covered by active permissions
-  const actionAllowed = checkActionPermission(veResult, action);
-
-  if (actionAllowed === "allowed") {
-    // Permission exists and action is within scope — pass through
-    console.log(`  [ALLOWED] ${action.type}: ${action.target}`);
-    audit.log({
-      action: action.type,
-      target: action.target,
-      result: "allowed",
-      reason: "ve-authorized",
-    });
-    return proxy.web(req, res);
-  }
-
-  // Check session memory for "Allow & Remember"
-  if (consent.hasSessionGrant(action.type, action.target)) {
-    console.log(`  [ALLOWED] ${action.type}: ${action.target} (session grant)`);
-    audit.log({
-      action: action.type,
-      target: action.target,
-      result: "allowed",
-      reason: "session-grant",
-    });
-    return proxy.web(req, res);
-  }
-
-  // Need real-time consent
-  console.log(`  [CONSENT] Requesting consent for ${action.type}: ${action.target}`);
-
-  // ── B.4 VE Gate: verify before consent ──
+  // ── B.4 VE Gate: verify before consent (F-B5-02 fix: single VE path) ──
   let veDecisionMain = null;
   try {
     const sessionId = process.env.CROCBOX_SESSION_ID || "session-" + Date.now();
@@ -260,7 +171,22 @@ async function handleRequest(req, res) {
     res.end(JSON.stringify({ error: "CROCbox: Action blocked. Trust Network did not authorize.", action: action.type, target: action.target }));
     return;
   }
-  // ── VE approved — proceed to local consent ──
+  // ── VE approved — check session grants, then consent ──
+
+  // Check session memory for "Allow & Remember" (with VE decision_id)
+  if (consent.hasSessionGrant(action.type, action.target)) {
+    console.log(`  [ALLOWED] ${action.type}: ${action.target} (session grant, VE approved)`);
+    audit.log({
+      action: action.type,
+      target: action.target,
+      result: "allowed",
+      reason: "session-grant",
+      decision_id: veDecisionMain ? veDecisionMain.decision_id : null,
+    });
+    return proxy.web(req, res);
+  }
+
+  console.log(`  [CONSENT] Requesting consent for ${action.type}: ${action.target}`);
 
   try {
     const decision = await consent.requestConsent(action);
@@ -332,30 +258,8 @@ async function handleRequest(req, res) {
 }
 
 // ── Permission Checker ────────────────────────────────────────────
-function checkActionPermission(veResult, action) {
-  if (!veResult.active_use_cards) return "needs-consent";
-
-  for (const card of veResult.active_use_cards) {
-    if (!card.actions) continue;
-    const actionMap = {
-      [ACTION_TYPES.EMAIL]: "send_email",
-      [ACTION_TYPES.API_CALL]: "api_call",
-      [ACTION_TYPES.SHELL]: "shell_exec",
-    };
-    const mappedAction = actionMap[action.type];
-    if (mappedAction && card.actions.includes(mappedAction)) {
-      return "allowed";
-    }
-    // Also check for broad "read" or "derive" permissions
-    if (card.actions.includes("Read") || card.actions.includes("Derive")) {
-      if (action.type === ACTION_TYPES.API_CALL) {
-        return "allowed";
-      }
-    }
-  }
-
-  return "needs-consent";
-}
+// checkActionPermission() REMOVED: F-B5-02 — legacy Supabase VE permission check.
+// All authorization now flows through veClient.verify() via the staging/production VE.
 
 // ── HTTP Server ───────────────────────────────────────────────────
 const server = http.createServer(handleRequest);
