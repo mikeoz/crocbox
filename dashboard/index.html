@@ -427,8 +427,6 @@
           setTimeout(connectWS, 5000);
         }
       };
-      };
-
       ws.onerror = () => {
         proxyDot.className = 'dot dot-red';
         proxyLabel.textContent = 'Cannot reach CARD Proxy';

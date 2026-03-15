@@ -331,7 +331,7 @@ function handleProxyMessage(msg){
     const actionLabel=actionLabels[msg.action]||msg.action||'take an action';
     // If Phase 2 chat is visible, show consent inline in chat
     const phase2=document.getElementById('phase2Shell');
-    if(phase2&&phase2.style.display!=='none'){
+    if(phase2&&getComputedStyle(phase2).display!=='none'){
       showChatConsent(msg.request_id,actionLabel,msg.target||'',msg.action||'');
     } else {
       document.getElementById('consentQuestion').textContent='Your AI wants to '+actionLabel;
@@ -411,35 +411,22 @@ document.getElementById('btnStartDemo').addEventListener('click',async()=>{
   let proxyRunning=false;
   try{const r=await fetch('/api/magic-demo/status');const d=await r.json();proxyRunning=d.proxyRunning;}catch{}
   if(!proxyRunning){showState('fallback');return;}
-  showState('consent-prompt');startP1Timeout();
-});
-document.getElementById('btnAllow').addEventListener('click',async()=>{
-  if(p1Timer){clearInterval(p1Timer);p1Timer=null;}if(currentRequestId){sendConsentResponse(currentRequestId,'allow');currentRequestId=null;}
-  states.forEach(s=>{const el=document.getElementById('state-'+s);if(el)el.style.setProperty('display','none','important');});
-  const loadingEl=document.createElement('div');
-  loadingEl.id='scan-loading';
-  loadingEl.style.cssText='padding:20px;text-align:center;color:var(--text-dim);font-size:14px;';
-  loadingEl.innerHTML='<span class="spinner"></span> Scanning Desktop...';
-  document.querySelector('.demo-body').appendChild(loadingEl);
-  let result;
+  showState('awaiting-consent');
   try{
     const resp=await fetch('/api/magic-demo/scan',{method:'POST'});
-    result=await resp.json();
-  }catch(e){
-    loadingEl.remove();
-    showState('fallback');return;
-  }
-  loadingEl.remove();
-  if(!result){showState('fallback');return;}
-  if(result.fallback){showState('fallback');return;}
-  if(result.denied||(result.success===false&&result.reason)){showState('denied');return;}
-  if(result.success){
-    renderResult(result.summary);
-    scanResult=result.summary;
-    document.getElementById('state-result').style.setProperty('display','block','important');
-    return;
-  }
-  showState('fallback');
+    const result=await resp.json();
+    const loadingEl=document.getElementById('scan-loading');
+    if(loadingEl)loadingEl.remove();
+    if(!result||result.fallback){showState('fallback');return;}
+    if(result.denied||(result.success===false&&result.reason)){showState('denied');return;}
+    if(result.success){showState('result');renderResult(result.summary);scanResult=result.summary;document.getElementById('state-result').style.setProperty('display','block','important');return;}
+    showState('fallback');
+  }catch(e){showState('fallback');}
+});
+document.getElementById('btnAllow').addEventListener('click',()=>{
+  if(p1Timer){clearInterval(p1Timer);p1Timer=null;}
+  if(currentRequestId){sendConsentResponse(currentRequestId,'allow');currentRequestId=null;}
+  showState('scanning');animateScan();
 });
 document.getElementById('btnDeny').addEventListener('click',()=>{
   if(p1Timer){clearInterval(p1Timer);p1Timer=null;}if(currentRequestId){sendConsentResponse(currentRequestId,'deny');currentRequestId=null;}

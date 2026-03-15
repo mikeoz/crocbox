@@ -37,8 +37,8 @@ class ConsentManager {
     this.wss.on("connection", (ws) => {
       console.log("  [CONSENT] Dashboard connected");
       if (this.dashboardSocket && this.dashboardSocket.readyState === 1) {
-        console.log("  [CONSENT] Replacing previous dashboard connection");
-        this.dashboardSocket.close(1000, "Replaced by new connection");
+        console.log("  [CONSENT] Replacing previous dashboard connection (not force-closing)");
+        this.dashboardSocket.removeAllListeners();
       }
       this.dashboardSocket = ws;
 
