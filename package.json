@@ -25,5 +25,48 @@
   },
   "engines": {
     "node": ">=22.0.0"
+  },
+  "build": {
+    "appId": "com.opnli.crocbox",
+    "productName": "CROCbox",
+    "mac": {
+      "category": "public.app-category.utilities",
+      "icon": "assets/CROCbox.icns",
+      "target": [
+        "dmg"
+      ],
+      "identity": "BA63999CD184C59C7BCEB2B44DFCC0E026A9ABC5",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "notarize": false
+    },
+    "dmg": {
+      "title": "CROCbox v${version}",
+      "contents": [
+        {
+          "x": 130,
+          "y": 220
+        },
+        {
+          "x": 410,
+          "y": 220,
+          "type": "link",
+          "path": "/Applications"
+        }
+      ]
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "ws-proxy.js",
+      "package.json",
+      "node_modules/**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "assets/CROCbox.icns",
+        "to": "CROCbox.icns"
+      }
+    ]
   }
 }
