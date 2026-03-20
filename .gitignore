@@ -7,3 +7,6 @@ dmg-staging/
 logs/
 .env
 .DS_Store
+dist/
+DeveloperIDG2CA.cer
+*.bak-*
