@@ -59,6 +59,8 @@
       "main.js",
       "preload.js",
       "ws-proxy.js",
+      "shield-score.js",
+      "card_ve_client.js",
       "package.json",
       "node_modules/**/*"
     ],

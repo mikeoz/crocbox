@@ -10,3 +10,4 @@ logs/
 dist/
 DeveloperIDG2CA.cer
 *.bak-*
+bundled-openclaw/
