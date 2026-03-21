@@ -90,6 +90,10 @@ contextBridge.exposeInMainWorld('crocbox', {
       console.log('[CROCbox Preload] Consent callback registered (' + consentCallbacks.length + ' total)');
     }
   },
+  // Shield Scoring Engine — get detail HTML for click-through
+  getShieldDetail: function() {
+    return ipcRenderer.invoke('crocbox:shield-detail');
+  },
   // Send consent decision back to main process -> proxy.
   // holdId: string (from consentRequest)
   // decision: 'allow' | 'deny'

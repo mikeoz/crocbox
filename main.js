@@ -30,6 +30,7 @@ const path = require('path');
 const fs = require('fs');
 // ── MITM Proxy Module ──────────────────────────────────────────
 const { startProxy, stopProxy, setConsentIPC, resolveConsent, PROXY_PORT } = require('./ws-proxy');
+const { computeShieldScore, getShieldDetailHTML, parseCatalog } = require('./shield-score');
 // ── Configuration ──────────────────────────────────────────────
 const GATEWAY_PORT = 18789;
 const GATEWAY_HOST = '127.0.0.1';
@@ -206,6 +207,70 @@ function connectToGateway(token) {
     });
   });
 }
+// ── Shield Scoring Engine UI ────────────────────────────────────
+function injectShieldIcon(win, score) {
+  if (!win || win.isDestroyed()) return;
+  const colorHex = score.color === 'green' ? '#4CAF50' :
+                   score.color === 'yellow' ? '#d4a017' : '#e53935';
+  const shieldChar = score.color === 'green' ? '\u2705' :
+                     score.color === 'yellow' ? '\uD83D\uDEE1\uFE0F' : '\uD83D\uDD34';
+
+  win.webContents.executeJavaScript(`
+    (function() {
+      // Remove existing shield
+      var old = document.getElementById('crocbox-shield-icon');
+      if (old) old.remove();
+      if (!document.getElementById('crocbox-shield-style')) {
+        var s = document.createElement('style');
+        s.id = 'crocbox-shield-style';
+        s.textContent = '#crocbox-shield-icon { position:fixed; top:8px; right:12px; z-index:999990; cursor:pointer; padding:4px 12px; border-radius:8px; background:rgba(0,0,0,0.7); border:1px solid ${colorHex}40; display:flex; align-items:center; gap:6px; transition:all 0.2s; } #crocbox-shield-icon:hover { background:rgba(0,0,0,0.9); border-color:${colorHex}; } #crocbox-shield-detail { position:fixed; top:44px; right:12px; z-index:999991; width:340px; background:rgba(0,0,0,0.95); border:1px solid ${colorHex}40; border-radius:12px; display:none; } #crocbox-shield-detail.visible { display:block; }';
+        document.head.appendChild(s);
+      }
+      var icon = document.createElement('div');
+      icon.id = 'crocbox-shield-icon';
+      icon.innerHTML = '<span style="font-size:18px">${shieldChar}</span><span style="font-size:11px;color:${colorHex};font-weight:600;font-family:-apple-system,sans-serif;text-transform:uppercase">${score.color} Shield</span>';
+      document.body.appendChild(icon);
+      // Detail panel
+      var detail = document.createElement('div');
+      detail.id = 'crocbox-shield-detail';
+      document.body.appendChild(detail);
+      icon.addEventListener('click', function() {
+        if (detail.classList.contains('visible')) {
+          detail.classList.remove('visible');
+        } else {
+          // Request detail HTML from main process
+          if (window.crocbox && window.crocbox.getShieldDetail) {
+            window.crocbox.getShieldDetail().then(function(html) {
+              detail.innerHTML = html + '<div style="padding:0 20px 16px;text-align:center"><button style="background:none;border:1px solid #555;color:#888;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:11px" onclick="document.getElementById(\\'crocbox-shield-detail\\').classList.remove(\\'visible\\')">Close</button></div>';
+              detail.classList.add('visible');
+            });
+          }
+        }
+      });
+      console.log('[CROCbox] Shield icon injected: ${score.color}');
+    })();
+  `).catch(function(err) {
+    console.log('[CROCbox] Shield icon injection failed: ' + err.message);
+  });
+}
+
+function computeAndInjectShield(win, catalogPayload) {
+  var tools = parseCatalog(catalogPayload);
+  if (tools.length === 0) {
+    console.log('[CROCbox] Shield: No tools in catalog — skipping');
+    return;
+  }
+  // Current CROCbox is always Yellow Shield (CBD)
+  currentShieldScore = computeShieldScore(tools, 'yellow', 0);
+  console.log('[CROCbox] Shield Score computed:');
+  console.log('[CROCbox]   Color: ' + currentShieldScore.color.toUpperCase());
+  console.log('[CROCbox]   OWASP: ' + currentShieldScore.owasp.classified + '/' + currentShieldScore.owasp.toolCount + ' classified');
+  console.log('[CROCbox]   AWS Scope: ' + currentShieldScore.aws.scope + ' (' + currentShieldScore.aws.label + ')');
+  console.log('[CROCbox]   Meta: ' + currentShieldScore.meta.config + (currentShieldScore.meta.hitlRequired ? ' — HITL mandatory' : ''));
+  console.log('[CROCbox]   Catalog Hash: ' + currentShieldScore.catalogHash.substring(0, 16) + '...');
+  injectShieldIcon(win, currentShieldScore);
+}
+
 // ── Welcome Screen (first launch only) ─────────────────────────
 function showWelcomeScreen() {
   return new Promise((resolve) => {
@@ -421,6 +486,12 @@ function wireConsentIPC(win) {
     return { success: result, holdId: holdId, decision: decision };
   });
   console.log('[CROCbox] Yellow Shield consent IPC wired ✓');
+
+  // Shield Scoring Engine IPC — click handler
+  ipcMain.handle('crocbox:shield-detail', function() {
+    if (!currentShieldScore) return '<div style="padding:24px;color:#888">Shield score not yet computed.</div>';
+    return getShieldDetailHTML(currentShieldScore, rentalSkiLevel);
+  });
 }
 // ── Application lifecycle ──────────────────────────────────────
 let mainWindow = null;
@@ -428,6 +499,8 @@ let gatewayConnection = null;
 let gatewayToken = null;
 let proxyServer = null;
 let startupComplete = false; // Prevents premature quit during welcome screen
+let currentShieldScore = null; // Shield Scoring Engine state
+let rentalSkiLevel = 'beginner'; // Default Rental Ski level
 app.whenReady().then(async () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
@@ -546,6 +619,34 @@ app.whenReady().then(async () => {
   if (firstLaunch) {
     console.log('[CROCbox] Injecting first prompt for Magic Moment...');
     injectFirstPrompt(mainWindow);
+  }
+
+  // Step 9: Compute Shield Score from Gateway catalog (SSE-1 through SSE-4)
+  try {
+    console.log('[CROCbox] Requesting tools.catalog for Shield Score...');
+    gatewayConnection.ws.send(JSON.stringify({
+      type: 'req',
+      id: 'crocbox-catalog-001',
+      method: 'tools.catalog',
+      params: {}
+    }));
+    // Listen for the catalog response
+    var catalogHandler = function(data) {
+      try {
+        var msg = JSON.parse(data.toString());
+        if (msg.type === 'res' && msg.id === 'crocbox-catalog-001' && msg.ok) {
+          gatewayConnection.ws.removeListener('message', catalogHandler);
+          console.log('[CROCbox] tools.catalog received — computing Shield Score');
+          // Small delay to ensure window is fully loaded
+          setTimeout(function() {
+            computeAndInjectShield(mainWindow, msg.payload);
+          }, 2000);
+        }
+      } catch (e) {}
+    };
+    gatewayConnection.ws.on('message', catalogHandler);
+  } catch (err) {
+    console.log('[CROCbox] Shield Score: could not request catalog — ' + err.message);
   }
 
   startupComplete = true;
