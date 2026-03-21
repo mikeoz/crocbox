@@ -1,5 +1,5 @@
 /**
- * CROCbox v0.8 — Electron Preload Script
+ * CROCbox v0.9 — Electron Preload Script
  * 
  * A.7: Auth token auto-injection
  * A.11: Yellow Shield consent card IPC bridge
@@ -76,7 +76,7 @@ ipcRenderer.on('crocbox:consent-request', function(_event, consentRequest) {
 // ── CROCbox Identity + IPC Bridge ──────────────────────────────
 contextBridge.exposeInMainWorld('crocbox', {
   // Identity
-  version: '0.8.0',
+  version: '0.9.0',
   phase: 'soft-launch',
   isCROCbox: true,
   // A.11: Yellow Shield consent API
