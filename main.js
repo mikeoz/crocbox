@@ -31,6 +31,7 @@ const fs = require('fs');
 // ── MITM Proxy Module ──────────────────────────────────────────
 const { startProxy, stopProxy, setConsentIPC, resolveConsent, PROXY_PORT } = require('./ws-proxy');
 const { computeShieldScore, getShieldDetailHTML, parseCatalog } = require('./shield-score');
+const { enroll: veEnroll, verify: veVerify, checkStatus: veCheckStatus } = require('./card_ve_client');
 // ── Configuration ──────────────────────────────────────────────
 const GATEWAY_PORT = 18789;
 const GATEWAY_HOST = '127.0.0.1';
@@ -207,6 +208,52 @@ function connectToGateway(token) {
     });
   });
 }
+// ── Trust Network Indicator ─────────────────────────────────────
+function injectTrustNetworkIndicator(win, status) {
+  if (!win || win.isDestroyed()) return;
+  var color = status === 'enrolled' ? '#4CAF50' : status === 'local' ? '#d4a017' : '#888';
+  var label = status === 'enrolled' ? 'Trust Network' : status === 'local' ? 'Local Mode' : 'Not Connected';
+  var dot = status === 'enrolled' ? '\u2705' : status === 'local' ? '\uD83D\uDFE1' : '\u26AA';
+
+  win.webContents.executeJavaScript(`
+    (function() {
+      var old = document.getElementById('crocbox-trust-indicator');
+      if (old) old.remove();
+      var el = document.createElement('div');
+      el.id = 'crocbox-trust-indicator';
+      el.style.cssText = 'position:fixed;top:8px;right:180px;z-index:999989;padding:3px 10px;border-radius:6px;background:rgba(0,0,0,0.6);border:1px solid ${color}40;display:flex;align-items:center;gap:5px;font-family:-apple-system,sans-serif;font-size:10px;color:${color};';
+      el.innerHTML = '<span>${dot}</span><span>${label}</span>';
+      document.body.appendChild(el);
+      console.log('[CROCbox] Trust Network indicator: ${status}');
+    })();
+  `).catch(function() {});
+}
+
+// ── VE Startup Check ───────────────────────────────────────────
+async function checkVeEnrollment() {
+  try {
+    var result = await veCheckStatus();
+    if (result.status === 'active') {
+      veStatus = 'enrolled';
+      veAgentId = result.agent_id;
+      console.log('[CROCbox] VE: Agent enrolled and active (id=' + result.agent_id + ')');
+      return 'enrolled';
+    } else if (result.status === 'not_enrolled') {
+      console.log('[CROCbox] VE: Agent not enrolled — running in local mode');
+      veStatus = 'local';
+      return 'local';
+    } else {
+      console.log('[CROCbox] VE: Status check returned: ' + result.status + ' — ' + (result.reason || ''));
+      veStatus = 'local';
+      return 'local';
+    }
+  } catch (err) {
+    console.log('[CROCbox] VE: Status check failed — ' + err.message + ' — running in local mode');
+    veStatus = 'local';
+    return 'local';
+  }
+}
+
 // ── Shield Scoring Engine UI ────────────────────────────────────
 function injectShieldIcon(win, score) {
   if (!win || win.isDestroyed()) return;
@@ -501,6 +548,8 @@ let proxyServer = null;
 let startupComplete = false; // Prevents premature quit during welcome screen
 let currentShieldScore = null; // Shield Scoring Engine state
 let rentalSkiLevel = 'beginner'; // Default Rental Ski level
+let veStatus = 'unknown'; // Trust Network status: enrolled, local, error
+let veAgentId = null; // VE agent ID (from enrollment)
 app.whenReady().then(async () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
@@ -648,6 +697,16 @@ app.whenReady().then(async () => {
   } catch (err) {
     console.log('[CROCbox] Shield Score: could not request catalog — ' + err.message);
   }
+
+  // Step 10: Check VE enrollment status (TN-4, TN-5, TN-6)
+  console.log('[CROCbox] Checking Trust Network enrollment...');
+  await checkVeEnrollment();
+  // Inject Trust Network indicator after window loads
+  setTimeout(function() {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      injectTrustNetworkIndicator(mainWindow, veStatus);
+    }
+  }, 3000);
 
   startupComplete = true;
   console.log('[CROCbox] ✓ CROCbox v0.9.0 ready');
