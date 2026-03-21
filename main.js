@@ -62,20 +62,54 @@ function markLaunched() {
 // In production (.app), resources are in Contents/Resources/
 // In dev mode, we fall back to system OpenClaw
 function getBundledPaths() {
-  // Production: inside the .app bundle
-  var resourcesPath = path.join(process.resourcesPath || '', 'bundled-openclaw');
-  var bundledNode = path.join(resourcesPath, 'node', 'node');
-  var bundledOC = path.join(resourcesPath, 'openclaw', 'dist', 'index.js');
-  if (fs.existsSync(bundledNode) && fs.existsSync(bundledOC)) {
-    return { node: bundledNode, openclaw: bundledOC, bundled: true };
+  // Check 1: Already extracted to ~/.crocbox/openclaw/
+  var extractedDir = path.join(CROCBOX_STATE_DIR, 'openclaw');
+  var extractedNode = path.join(extractedDir, 'node', 'node');
+  var extractedOC = path.join(extractedDir, 'openclaw', 'dist', 'index.js');
+  if (fs.existsSync(extractedNode) && fs.existsSync(extractedOC)) {
+    return { node: extractedNode, openclaw: extractedOC, bundled: true, extracted: true };
   }
-  // Dev mode: check relative to project directory
+  // Check 2: Archive in .app bundle (production) — needs extraction
+  var archivePath = path.join(process.resourcesPath || '', 'bundled-openclaw.tar.gz');
+  if (fs.existsSync(archivePath)) {
+    return { node: null, openclaw: null, bundled: true, extracted: false, archivePath: archivePath };
+  }
+  // Check 3: Dev mode — uncompressed directory next to main.js
   var devNode = path.join(__dirname, 'bundled-openclaw', 'node', 'node');
   var devOC = path.join(__dirname, 'bundled-openclaw', 'openclaw', 'dist', 'index.js');
   if (fs.existsSync(devNode) && fs.existsSync(devOC)) {
-    return { node: devNode, openclaw: devOC, bundled: true };
+    return { node: devNode, openclaw: devOC, bundled: true, extracted: true };
   }
-  return { node: null, openclaw: null, bundled: false };
+  return { node: null, openclaw: null, bundled: false, extracted: false };
+}
+
+// ── Extract bundled archive on first launch ────────────────────
+function extractBundledArchive(archivePath) {
+  return new Promise(function(resolve) {
+    var extractDir = path.join(CROCBOX_STATE_DIR, 'openclaw');
+    console.log('[CROCbox] Extracting bundled OpenClaw to ' + extractDir + '...');
+    fs.mkdirSync(extractDir, { recursive: true });
+    var { exec } = require('child_process');
+    exec('tar xzf "' + archivePath + '" -C "' + extractDir + '"', { timeout: 120000 }, function(err) {
+      if (err) {
+        console.log('[CROCbox] Extraction failed: ' + err.message);
+        resolve(false);
+      } else {
+        // Verify extraction
+        var nodeCheck = path.join(extractDir, 'node', 'node');
+        var ocCheck = path.join(extractDir, 'openclaw', 'dist', 'index.js');
+        if (fs.existsSync(nodeCheck) && fs.existsSync(ocCheck)) {
+          // Make node executable
+          fs.chmodSync(nodeCheck, 0o755);
+          console.log('[CROCbox] Extraction complete');
+          resolve(true);
+        } else {
+          console.log('[CROCbox] Extraction incomplete — missing files');
+          resolve(false);
+        }
+      }
+    });
+  });
 }
 // ── Create OpenClaw config for bundled mode ────────────────────
 function ensureOpenClawConfig() {
@@ -130,6 +164,7 @@ function startBundledGateway(bundledPaths) {
     console.log('[CROCbox]   OpenClaw: ' + bundledPaths.openclaw);
     var { spawn } = require('child_process');
     var gw = spawn(bundledPaths.node, [bundledPaths.openclaw, 'gateway', '--port', String(GATEWAY_PORT), '--allow-unconfigured'], {
+      cwd: process.env.HOME || '/tmp',
       stdio: ['ignore', 'pipe', 'pipe'],
       env: Object.assign({}, process.env, {
         HOME: process.env.HOME,
@@ -225,6 +260,7 @@ function autoStartGateway() {
       // Start gateway in background
       const { spawn } = require('child_process');
       const gw = spawn('openclaw', ['gateway', '--port', String(GATEWAY_PORT)], {
+        cwd: process.env.HOME || '/tmp',
         stdio: 'ignore',
         detached: true,
         env: Object.assign({}, process.env, { PATH: '/opt/homebrew/bin:/usr/local/bin:' + (process.env.PATH || '') })
@@ -687,6 +723,24 @@ app.whenReady().then(async () => {
 
   if (!useSystemOC && bundled.bundled) {
     console.log('[CROCbox] System OpenClaw not found — using bundled copy');
+    // Extract archive if needed (first launch from .app)
+    if (!bundled.extracted && bundled.archivePath) {
+      console.log('[CROCbox] First launch — extracting bundled OpenClaw...');
+      var extracted = await extractBundledArchive(bundled.archivePath);
+      if (!extracted) {
+        dialog.showMessageBoxSync({
+          type: 'error',
+          title: 'CROCbox — Setup Error',
+          message: 'CROCbox could not extract its AI engine.',
+          detail: 'Please re-download CROCbox from GitHub.',
+          buttons: ['Quit']
+        });
+        app.quit();
+        return;
+      }
+      // Re-check paths after extraction
+      bundled = getBundledPaths();
+    }
     ensureOpenClawConfig();
   }
   console.log('[CROCbox] OpenClaw: ' + (useSystemOC ? 'system' : 'bundled') + ' ✓');

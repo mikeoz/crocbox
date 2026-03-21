@@ -68,6 +68,10 @@
       {
         "from": "assets/CROCbox.icns",
         "to": "CROCbox.icns"
+      },
+      {
+        "from": "bundled-openclaw.tar.gz",
+        "to": "bundled-openclaw.tar.gz"
       }
     ]
   }
