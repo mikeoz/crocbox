@@ -58,6 +58,115 @@ function markLaunched() {
     'utf8'
   );
 }
+// ── Bundled OpenClaw paths ─────────────────────────────────────
+// In production (.app), resources are in Contents/Resources/
+// In dev mode, we fall back to system OpenClaw
+function getBundledPaths() {
+  // Production: inside the .app bundle
+  var resourcesPath = path.join(process.resourcesPath || '', 'bundled-openclaw');
+  var bundledNode = path.join(resourcesPath, 'node', 'node');
+  var bundledOC = path.join(resourcesPath, 'openclaw', 'dist', 'index.js');
+  if (fs.existsSync(bundledNode) && fs.existsSync(bundledOC)) {
+    return { node: bundledNode, openclaw: bundledOC, bundled: true };
+  }
+  // Dev mode: check relative to project directory
+  var devNode = path.join(__dirname, 'bundled-openclaw', 'node', 'node');
+  var devOC = path.join(__dirname, 'bundled-openclaw', 'openclaw', 'dist', 'index.js');
+  if (fs.existsSync(devNode) && fs.existsSync(devOC)) {
+    return { node: devNode, openclaw: devOC, bundled: true };
+  }
+  return { node: null, openclaw: null, bundled: false };
+}
+// ── Create OpenClaw config for bundled mode ────────────────────
+function ensureOpenClawConfig() {
+  var ocDir = path.join(process.env.HOME || '/tmp', '.openclaw');
+  var configPath = path.join(ocDir, 'openclaw.json');
+  var authDir = path.join(ocDir, 'agents', 'main', 'agent');
+  var authPath = path.join(authDir, 'auth-profiles.json');
+
+  // Create directory structure
+  if (!fs.existsSync(ocDir)) fs.mkdirSync(ocDir, { recursive: true });
+  if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
+
+  // Ensure config has gateway auth token (merge if file exists)
+  var config = {};
+  if (fs.existsSync(configPath)) {
+    try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch (e) { config = {}; }
+  }
+  if (!config.gateway) config.gateway = {};
+  if (!config.gateway.port) config.gateway.port = GATEWAY_PORT;
+  if (!config.gateway.auth) config.gateway.auth = {};
+  if (!config.gateway.auth.token) {
+    config.gateway.auth.token = require('crypto').randomBytes(32).toString('hex');
+    console.log('[CROCbox] Generated new Gateway auth token');
+  }
+  if (!config.gateway.mode) config.gateway.mode = 'local';
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+  console.log('[CROCbox] OpenClaw config ensured: ' + configPath);
+
+  // Write embedded API key if auth-profiles not present
+  if (!fs.existsSync(authPath)) {
+    var authProfiles = {
+      version: 1,
+      profiles: {
+        'anthropic:default': {
+          type: 'api_key',
+          provider: 'anthropic',
+          key: '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'
+        }
+      },
+      usageStats: {}
+    };
+    fs.writeFileSync(authPath, JSON.stringify(authProfiles, null, 2), 'utf8');
+    console.log('[CROCbox] Embedded API key written to auth-profiles');
+  }
+}
+let bundledGatewayProcess = null; // Track the spawned Gateway for cleanup
+// ── Start Gateway from bundle ──────────────────────────────────
+function startBundledGateway(bundledPaths) {
+  return new Promise((resolve) => {
+    console.log('[CROCbox] Starting bundled Gateway...');
+    console.log('[CROCbox]   Node: ' + bundledPaths.node);
+    console.log('[CROCbox]   OpenClaw: ' + bundledPaths.openclaw);
+    var { spawn } = require('child_process');
+    var gw = spawn(bundledPaths.node, [bundledPaths.openclaw, 'gateway', '--port', String(GATEWAY_PORT), '--allow-unconfigured'], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: Object.assign({}, process.env, {
+        HOME: process.env.HOME,
+        PATH: '/opt/homebrew/bin:/usr/local/bin:' + (process.env.PATH || '')
+      })
+    });
+    bundledGatewayProcess = gw;
+    gw.stdout.on('data', function(d) {
+      var line = d.toString().trim();
+      if (line) console.log('[BundledGW] ' + line);
+    });
+    gw.stderr.on('data', function(d) {
+      var line = d.toString().trim();
+      if (line) console.log('[BundledGW:err] ' + line);
+    });
+    gw.on('error', function(err) {
+      console.log('[CROCbox] Bundled Gateway spawn error: ' + err.message);
+      resolve(false);
+    });
+    // Poll for Gateway to become available
+    var attempts = 0;
+    var maxAttempts = 30;
+    var poll = setInterval(async function() {
+      attempts++;
+      var running = await checkGatewayRunning();
+      if (running) {
+        clearInterval(poll);
+        console.log('[CROCbox] Bundled Gateway running (' + (attempts * 0.5) + 's)');
+        resolve(true);
+      } else if (attempts >= maxAttempts) {
+        clearInterval(poll);
+        console.log('[CROCbox] Bundled Gateway did not start within 15s');
+        resolve(false);
+      }
+    }, 500);
+  });
+}
 // ── Read OpenClaw config for auth token ────────────────────────
 function readGatewayToken() {
   const configPath = path.join(
@@ -559,50 +668,68 @@ app.whenReady().then(async () => {
   console.log('  ╚══════════════════════════════════════╝');
   console.log('');
 
-  // Step 0: Detect if OpenClaw is installed (G-3 fix)
-  if (!detectOpenClaw()) {
-    console.error('[CROCbox] OpenClaw not found on this system');
+  // Step 0: Detect OpenClaw — system or bundled
+  var useSystemOC = detectOpenClaw();
+  var bundled = getBundledPaths();
+
+  if (!useSystemOC && !bundled.bundled) {
+    console.error('[CROCbox] No OpenClaw available (system or bundled)');
     dialog.showMessageBoxSync({
       type: 'error',
-      title: 'CROCbox — OpenClaw Required',
-      message: 'CROCbox requires OpenClaw to be installed.',
-      detail: 'OpenClaw is the AI agent engine that CROCbox wraps with its trust layer.\n\nTo install OpenClaw:\n1. Open Terminal\n2. Paste: curl -fsSL https://openclaw.ai/install.sh | bash\n3. Run: openclaw onboard --install-daemon\n4. Relaunch CROCbox',
+      title: 'CROCbox — Setup Error',
+      message: 'CROCbox could not find its AI engine.',
+      detail: 'The application bundle may be damaged. Please re-download CROCbox from GitHub.',
       buttons: ['Quit']
     });
     app.quit();
     return;
   }
-  console.log('[CROCbox] OpenClaw detected ✓');
+
+  if (!useSystemOC && bundled.bundled) {
+    console.log('[CROCbox] System OpenClaw not found — using bundled copy');
+    ensureOpenClawConfig();
+  }
+  console.log('[CROCbox] OpenClaw: ' + (useSystemOC ? 'system' : 'bundled') + ' ✓');
 
   // Step 1: Read auth token
   gatewayToken = readGatewayToken();
   if (!gatewayToken) {
-    console.error('[CROCbox] No Gateway auth token found');
-    dialog.showMessageBoxSync({
-      type: 'error',
-      title: 'CROCbox — Configuration Needed',
-      message: 'CROCbox could not find your OpenClaw configuration.',
-      detail: 'OpenClaw needs to be set up before CROCbox can connect.\n\nTo set up OpenClaw:\n1. Open Terminal\n2. Run: openclaw onboard\n3. Follow the setup wizard\n4. Relaunch CROCbox',
-      buttons: ['Quit']
-    });
-    app.quit();
-    return;
+    if (!useSystemOC && bundled.bundled) {
+      ensureOpenClawConfig();
+      gatewayToken = readGatewayToken();
+    }
+    if (!gatewayToken) {
+      dialog.showMessageBoxSync({
+        type: 'error',
+        title: 'CROCbox — Configuration Error',
+        message: 'CROCbox could not find the AI configuration.',
+        detail: 'Please re-download CROCbox from GitHub.',
+        buttons: ['Quit']
+      });
+      app.quit();
+      return;
+    }
   }
-  console.log('[CROCbox] Auth token loaded from openclaw.json ✓');
+  console.log('[CROCbox] Auth token loaded ✓');
 
-  // Step 2: Check Gateway — auto-start if not running (G-1, G-2 fix)
+  // Step 2: Start Gateway — system auto-start or bundled
   console.log('[CROCbox] Checking Gateway at ' + GATEWAY_URL + '...');
   var running = await checkGatewayRunning();
   if (!running) {
-    console.log('[CROCbox] Gateway not running — attempting auto-start...');
-    running = await autoStartGateway();
+    if (useSystemOC) {
+      console.log('[CROCbox] Auto-starting system Gateway...');
+      running = await autoStartGateway();
+    }
+    if (!running && bundled.bundled) {
+      console.log('[CROCbox] Starting bundled Gateway...');
+      running = await startBundledGateway(bundled);
+    }
     if (!running) {
-      console.error('[CROCbox] Gateway could not be started');
       dialog.showMessageBoxSync({
         type: 'error',
-        title: 'CROCbox — Gateway Not Available',
-        message: 'CROCbox could not start the OpenClaw Gateway.',
-        detail: 'The Gateway may need to be started manually.\n\nTo start the Gateway:\n1. Open Terminal\n2. Run: openclaw gateway\n3. Wait for "Gateway running" message\n4. Relaunch CROCbox\n\nIf this keeps happening, try: openclaw onboard --install-daemon',
+        title: 'CROCbox — Gateway Error',
+        message: 'CROCbox could not start the AI engine.',
+        detail: 'Please try relaunching. If this persists, re-download from GitHub.',
         buttons: ['Quit']
       });
       app.quit();
@@ -719,6 +846,12 @@ app.on('window-all-closed', async () => {
     return;
   }
   console.log('[CROCbox] All windows closed — shutting down');
+  // Kill bundled Gateway if we started it
+  if (bundledGatewayProcess) {
+    console.log('[CROCbox] Stopping bundled Gateway...');
+    try { bundledGatewayProcess.kill(); } catch (e) {}
+    bundledGatewayProcess = null;
+  }
   if (gatewayConnection && gatewayConnection.ws) {
     gatewayConnection.ws.close();
   }
