@@ -1,7 +1,7 @@
 /**
- * CROCbox v0.8 — Electron Main Process
+ * CROCbox v0.9 — Electron Main Process
  * 
- * Phase 1: Gateway Connection
+ * Phase 1: Gateway Connection (with auto-start + native error dialogs)
  * Phase 2: BrowserWindow + Control UI
  * A.7: Auth token auto-injected via proxy HTML injection
  * A.8: WebSocket MITM proxy with HTTP proxying and WS redirect
@@ -22,7 +22,7 @@
  * @see OPN_ENG_v08-Architecture_15MAR26_v1, Section 3.2
  * @see OPN_PM_FullCROC-Mode_16MAR26_v2, Section 5
  */
-const { app, BrowserWindow, ipcMain } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const { execSync } = require('child_process');
 const WebSocket = require('ws');
 const crypto = require('crypto');
@@ -36,6 +36,26 @@ const GATEWAY_HOST = '127.0.0.1';
 const GATEWAY_URL = `http://${GATEWAY_HOST}:${GATEWAY_PORT}`;
 const GATEWAY_WS = `ws://${GATEWAY_HOST}:${GATEWAY_PORT}`;
 const PROXY_URL = `http://${GATEWAY_HOST}:${PROXY_PORT}`;
+
+// ── CROCbox state directory ────────────────────────────────────
+const CROCBOX_STATE_DIR = path.join(process.env.HOME || '/tmp', '.crocbox');
+function ensureStateDir() {
+  if (!fs.existsSync(CROCBOX_STATE_DIR)) {
+    fs.mkdirSync(CROCBOX_STATE_DIR, { recursive: true });
+    console.log('[CROCbox] Created state directory: ' + CROCBOX_STATE_DIR);
+  }
+}
+function isFirstLaunch() {
+  return !fs.existsSync(path.join(CROCBOX_STATE_DIR, 'launched'));
+}
+function markLaunched() {
+  ensureStateDir();
+  fs.writeFileSync(
+    path.join(CROCBOX_STATE_DIR, 'launched'),
+    JSON.stringify({ firstLaunch: new Date().toISOString(), version: '0.9.0' }),
+    'utf8'
+  );
+}
 // ── Read OpenClaw config for auth token ────────────────────────
 function readGatewayToken() {
   const configPath = path.join(
@@ -71,6 +91,54 @@ function checkGatewayRunning() {
     );
     req.on('error', () => resolve(false));
     req.on('timeout', () => { req.destroy(); resolve(false); });
+  });
+}
+// ── Detect if OpenClaw is installed ────────────────────────────
+function detectOpenClaw() {
+  try {
+    const result = require('child_process').execSync('which openclaw 2>/dev/null', { encoding: 'utf8' }).trim();
+    if (result) {
+      console.log('[CROCbox] OpenClaw found at: ' + result);
+      return true;
+    }
+    return false;
+  } catch (e) {
+    return false;
+  }
+}
+// ── Auto-start Gateway if not running ──────────────────────────
+function autoStartGateway() {
+  return new Promise((resolve) => {
+    console.log('[CROCbox] Attempting to auto-start Gateway...');
+    try {
+      // Start gateway in background
+      const { spawn } = require('child_process');
+      const gw = spawn('openclaw', ['gateway', '--port', String(GATEWAY_PORT)], {
+        stdio: 'ignore',
+        detached: true,
+        env: Object.assign({}, process.env, { PATH: '/opt/homebrew/bin:/usr/local/bin:' + (process.env.PATH || '') })
+      });
+      gw.unref();
+      // Poll for gateway to become available (up to 15 seconds)
+      let attempts = 0;
+      const maxAttempts = 30; // 30 x 500ms = 15 seconds
+      const poll = setInterval(async () => {
+        attempts++;
+        const running = await checkGatewayRunning();
+        if (running) {
+          clearInterval(poll);
+          console.log('[CROCbox] Gateway auto-started successfully (' + (attempts * 0.5) + 's)');
+          resolve(true);
+        } else if (attempts >= maxAttempts) {
+          clearInterval(poll);
+          console.log('[CROCbox] Gateway did not start within 15 seconds');
+          resolve(false);
+        }
+      }, 500);
+    } catch (err) {
+      console.error('[CROCbox] Auto-start failed: ' + err.message);
+      resolve(false);
+    }
   });
 }
 // ── Connect to Gateway WebSocket ───────────────────────────────
@@ -137,6 +205,106 @@ function connectToGateway(token) {
       console.log('[CROCbox] Gateway WebSocket closed');
     });
   });
+}
+// ── Welcome Screen (first launch only) ─────────────────────────
+function showWelcomeScreen() {
+  return new Promise((resolve) => {
+    const welcomeWin = new BrowserWindow({
+      width: 640,
+      height: 620,
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      title: 'Welcome to CROCbox',
+      titleBarStyle: 'hiddenInset',
+      trafficLightPosition: { x: 15, y: 12 },
+      backgroundColor: '#0a0a0a',
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true
+      }
+    });
+    const welcomeHTML = `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0a0a0a; color:#f0f0f0; font-family:-apple-system,BlinkMacSystemFont,sans-serif;
+         display:flex; flex-direction:column; height:100vh; -webkit-app-region:drag; user-select:none; }
+  .content { flex:1; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:40px; }
+  .shield { font-size:72px; margin-bottom:16px; }
+  h1 { font-size:28px; font-weight:700; margin-bottom:8px; color:#f0f0f0; }
+  .subtitle { font-size:15px; color:#999; margin-bottom:32px; }
+  .steps { text-align:left; width:100%; max-width:420px; }
+  .step { display:flex; align-items:flex-start; gap:14px; margin-bottom:20px; }
+  .step-num { width:28px; height:28px; border-radius:50%; background:#d4a017; color:#000;
+              display:flex; align-items:center; justify-content:center; font-weight:700;
+              font-size:14px; flex-shrink:0; }
+  .step-text { font-size:14px; line-height:1.5; color:#ccc; padding-top:3px; }
+  .step-text strong { color:#f0f0f0; }
+  .btn-row { padding:24px 40px; display:flex; justify-content:center; -webkit-app-region:no-drag; }
+  .btn { padding:14px 48px; border:none; border-radius:10px; font-size:16px; font-weight:600;
+         cursor:pointer; background:#d4a017; color:#000; }
+  .btn:hover { background:#e0b020; }
+  .footer { font-size:11px; color:#555; text-align:center; padding-bottom:16px; }
+</style></head><body>
+<div class="content">
+  <div class="shield">\u{1F6E1}\u{FE0F}</div>
+  <h1>Your AI, Your Control</h1>
+  <div class="subtitle">CROCbox wraps your AI agent in a trust layer</div>
+  <div class="steps">
+    <div class="step"><div class="step-num">1</div>
+      <div class="step-text"><strong>Your AI acts.</strong> It can search the web, run commands, read files \u2014 real actions on your computer.</div></div>
+    <div class="step"><div class="step-num">2</div>
+      <div class="step-text"><strong>CROCbox catches it.</strong> Every action is detected and held. The Yellow Shield appears.</div></div>
+    <div class="step"><div class="step-num">3</div>
+      <div class="step-text"><strong>You decide.</strong> Allow the result or block it. Your choice, every time.</div></div>
+  </div>
+</div>
+<div class="btn-row"><button class="btn" onclick="window.close()">See the Magic</button></div>
+<div class="footer">My data + Your AI + My control = Living Intelligence</div>
+</body></html>`;
+    welcomeWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(welcomeHTML));
+    welcomeWin.on('closed', () => {
+      resolve();
+    });
+  });
+}
+// ── Inject pre-loaded first prompt ─────────────────────────────
+function injectFirstPrompt(win) {
+  // Wait for the OpenClaw UI to fully render, then inject a prompt
+  // that will trigger a tool execution (and thus the Yellow Shield)
+  setTimeout(() => {
+    if (!win || win.isDestroyed()) return;
+    win.webContents.executeJavaScript(`
+      (function() {
+        // Find the chat input field
+        var input = document.querySelector('textarea, input[type="text"], [contenteditable="true"]');
+        if (!input) {
+          // Try shadow DOM (Lit components)
+          var app = document.querySelector('openclaw-app');
+          if (app && app.shadowRoot) {
+            input = app.shadowRoot.querySelector('textarea, input[type="text"], [contenteditable="true"]');
+          }
+        }
+        if (input) {
+          // Set the value and dispatch input event
+          var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value') ||
+                             Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
+          if (nativeSetter && nativeSetter.set) {
+            nativeSetter.set.call(input, 'Run the command: date');
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            console.log('[CROCbox] First prompt injected into chat input');
+          } else {
+            input.value = 'Run the command: date';
+            input.dispatchEvent(new Event('input', { bubbles: true }));
+            console.log('[CROCbox] First prompt injected (fallback)');
+          }
+        } else {
+          console.log('[CROCbox] Could not find chat input for first prompt');
+        }
+      })();
+    `).catch(() => {});
+  }, 3000); // Wait 3s for UI to fully render
 }
 // ── Create the main application window ─────────────────────────
 function createWindow(gatewayConnection) {
@@ -259,41 +427,85 @@ let mainWindow = null;
 let gatewayConnection = null;
 let gatewayToken = null;
 let proxyServer = null;
+let startupComplete = false; // Prevents premature quit during welcome screen
 app.whenReady().then(async () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║   CROCbox v0.8.0 — Soft Launch       ║');
+  console.log('  ║   CROCbox v0.9.0 — Soft Launch       ║');
   console.log('  ║   The Agent Trust Layer for OpenClaw  ║');
+  console.log('  ║   Shield Scoring Engine Edition       ║');
   console.log('  ╚══════════════════════════════════════╝');
   console.log('');
+
+  // Step 0: Detect if OpenClaw is installed (G-3 fix)
+  if (!detectOpenClaw()) {
+    console.error('[CROCbox] OpenClaw not found on this system');
+    dialog.showMessageBoxSync({
+      type: 'error',
+      title: 'CROCbox — OpenClaw Required',
+      message: 'CROCbox requires OpenClaw to be installed.',
+      detail: 'OpenClaw is the AI agent engine that CROCbox wraps with its trust layer.\n\nTo install OpenClaw:\n1. Open Terminal\n2. Paste: curl -fsSL https://openclaw.ai/install.sh | bash\n3. Run: openclaw onboard --install-daemon\n4. Relaunch CROCbox',
+      buttons: ['Quit']
+    });
+    app.quit();
+    return;
+  }
+  console.log('[CROCbox] OpenClaw detected ✓');
+
   // Step 1: Read auth token
   gatewayToken = readGatewayToken();
   if (!gatewayToken) {
-    console.error('[CROCbox] FATAL: No Gateway auth token found in ~/.openclaw/openclaw.json');
-    console.error('[CROCbox] Run "openclaw" first to set up OpenClaw.');
+    console.error('[CROCbox] No Gateway auth token found');
+    dialog.showMessageBoxSync({
+      type: 'error',
+      title: 'CROCbox — Configuration Needed',
+      message: 'CROCbox could not find your OpenClaw configuration.',
+      detail: 'OpenClaw needs to be set up before CROCbox can connect.\n\nTo set up OpenClaw:\n1. Open Terminal\n2. Run: openclaw onboard\n3. Follow the setup wizard\n4. Relaunch CROCbox',
+      buttons: ['Quit']
+    });
     app.quit();
     return;
   }
-  console.log('[CROCbox] Auth token loaded from openclaw.json');
-  // Step 2: Check Gateway is running
+  console.log('[CROCbox] Auth token loaded from openclaw.json ✓');
+
+  // Step 2: Check Gateway — auto-start if not running (G-1, G-2 fix)
   console.log('[CROCbox] Checking Gateway at ' + GATEWAY_URL + '...');
   var running = await checkGatewayRunning();
   if (!running) {
-    console.error('[CROCbox] FATAL: OpenClaw Gateway not running on port ' + GATEWAY_PORT);
-    console.error('[CROCbox] Start it with: openclaw');
-    app.quit();
-    return;
+    console.log('[CROCbox] Gateway not running — attempting auto-start...');
+    running = await autoStartGateway();
+    if (!running) {
+      console.error('[CROCbox] Gateway could not be started');
+      dialog.showMessageBoxSync({
+        type: 'error',
+        title: 'CROCbox — Gateway Not Available',
+        message: 'CROCbox could not start the OpenClaw Gateway.',
+        detail: 'The Gateway may need to be started manually.\n\nTo start the Gateway:\n1. Open Terminal\n2. Run: openclaw gateway\n3. Wait for "Gateway running" message\n4. Relaunch CROCbox\n\nIf this keeps happening, try: openclaw onboard --install-daemon',
+        buttons: ['Quit']
+      });
+      app.quit();
+      return;
+    }
   }
   console.log('[CROCbox] Gateway is running ✓');
+
   // Step 3: Connect via WebSocket (CROCbox main process connection)
   try {
     gatewayConnection = await connectToGateway(gatewayToken);
     console.log('[CROCbox] Gateway connection established ✓');
   } catch (err) {
-    console.error('[CROCbox] FATAL: ' + err.message);
+    console.error('[CROCbox] Gateway connection failed: ' + err.message);
+    dialog.showMessageBoxSync({
+      type: 'error',
+      title: 'CROCbox — Connection Failed',
+      message: 'CROCbox connected to the Gateway but the handshake failed.',
+      detail: 'Error: ' + err.message + '\n\nThis usually means the Gateway needs to be restarted.\n\n1. Open Terminal\n2. Run: openclaw gateway\n3. Relaunch CROCbox',
+      buttons: ['Quit']
+    });
     app.quit();
     return;
   }
+
   // Step 4: Start the HTTP+WS Proxy (A.7 + A.8 + A.10-R)
   var deviceId = getCROCboxDeviceId();
   try {
@@ -301,18 +513,52 @@ app.whenReady().then(async () => {
     console.log('[CROCbox] HTTP+WS proxy started ✓');
     console.log('[CROCbox] DeviceId: ' + deviceId);
   } catch (err) {
-    console.error('[CROCbox] FATAL: Could not start proxy — ' + err.message);
+    console.error('[CROCbox] Proxy start failed: ' + err.message);
+    dialog.showMessageBoxSync({
+      type: 'error',
+      title: 'CROCbox — Internal Error',
+      message: 'CROCbox could not start its internal proxy.',
+      detail: 'Error: ' + err.message + '\n\nThis may be caused by a port conflict. Try quitting all CROCbox instances and relaunching.',
+      buttons: ['Quit']
+    });
     app.quit();
     return;
   }
-  // Step 5: Create the application window
+
+  // Step 5: First-launch welcome screen (OB-1)
+  ensureStateDir();
+  var firstLaunch = isFirstLaunch();
+  if (firstLaunch) {
+    console.log('[CROCbox] First launch detected — showing welcome screen');
+    await showWelcomeScreen();
+    markLaunched();
+    console.log('[CROCbox] Welcome screen completed ✓');
+  }
+
+  // Step 6: Create the application window
   mainWindow = createWindow(gatewayConnection);
   console.log('[CROCbox] Application window created ✓');
-  // Step 6: Wire Yellow Shield consent IPC (A.11)
+
+  // Step 7: Wire Yellow Shield consent IPC (A.11)
   wireConsentIPC(mainWindow);
+
+  // Step 8: Inject first prompt on first launch (OB-3)
+  if (firstLaunch) {
+    console.log('[CROCbox] Injecting first prompt for Magic Moment...');
+    injectFirstPrompt(mainWindow);
+  }
+
+  startupComplete = true;
+  console.log('[CROCbox] ✓ CROCbox v0.9.0 ready');
   console.log('');
 });
 app.on('window-all-closed', async () => {
+  // Don't quit if startup is still in progress (welcome screen closing)
+  if (!startupComplete) {
+    console.log('[CROCbox] Window closed during startup — not quitting yet');
+    return;
+  }
+  console.log('[CROCbox] All windows closed — shutting down');
   if (gatewayConnection && gatewayConnection.ws) {
     gatewayConnection.ws.close();
   }
