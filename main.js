@@ -890,7 +890,7 @@ let veAgentId = null; // VE agent ID (from enrollment)
 app.whenReady().then(async () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║   CROCbox v0.9.0 — Soft Launch       ║');
+  console.log('  ║   CROCbox v1.0.0 — Day One       ║');
   console.log('  ║   The Agent Trust Layer for OpenClaw  ║');
   console.log('  ║   Shield Scoring Engine Edition       ║');
   console.log('  ╚══════════════════════════════════════╝');
@@ -1138,7 +1138,7 @@ app.whenReady().then(async () => {
   }, 3000);
 
   startupComplete = true;
-  console.log('[CROCbox] ✓ CROCbox v0.9.0 ready');
+  console.log('[CROCbox] ✓ CROCbox v1.0.0 ready');
   console.log('');
 });
 app.on('window-all-closed', async () => {
