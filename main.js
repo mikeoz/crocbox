@@ -139,7 +139,7 @@ function ensureOpenClawConfig() {
   console.log('[CROCbox] OpenClaw config ensured: ' + configPath);
 
   // Write embedded API key if auth-profiles not present
-  if (!fs.existsSync(authPath)) {
+  { // Always write embedded API key (ensures fresh key on upgrade)
     var authProfiles = {
       version: 1,
       profiles: {
