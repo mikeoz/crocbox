@@ -340,11 +340,11 @@ function getShieldDetailHTML(score, level) {
   level = level || 'beginner';
   const colorHex = score.color === 'green' ? '#4CAF50' : 
                    score.color === 'yellow' ? '#d4a017' : '#e53935';
-  const shieldEmoji = score.color === 'green' ? '🟢' : score.color === 'yellow' ? '🛡️' : '🔴';
+  function _sv(sz) { var c = score.color, o = c==='green'?'#16A34A':c==='yellow'?'#CA8A04':'#DC2626', n = c==='green'?'#22C55E':c==='yellow'?'#EAB308':'#EF4444', sw = sz<=20?5:sz<=36?3:1.5; return '<svg width="'+sz+'" height="'+Math.round(sz*1.2)+'" viewBox="0 0 100 120" style="display:inline-block"><path d="M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z" fill="#58585C" stroke="#707074" stroke-width="'+sw+'"/><path d="M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z" fill="'+o+'"/><path d="M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z" fill="'+n+'"/></svg>'; }
 
   if (level === 'beginner') {
     return `<div style="padding:24px">
-      <div style="font-size:48px;text-align:center;margin-bottom:12px">${shieldEmoji}</div>
+      <div style="text-align:center;margin-bottom:12px">${_sv(48)}</div>
       <div style="font-size:20px;font-weight:700;text-align:center;color:${colorHex};margin-bottom:16px;text-transform:uppercase">${score.color} Shield</div>
       <div style="font-size:15px;line-height:1.7;color:#ccc">${score.nhbSummary}</div>
     </div>`;
@@ -352,7 +352,7 @@ function getShieldDetailHTML(score, level) {
 
   if (level === 'intermediate') {
     return `<div style="padding:24px">
-      <div style="font-size:36px;text-align:center;margin-bottom:8px">${shieldEmoji}</div>
+      <div style="text-align:center;margin-bottom:8px">${_sv(36)}</div>
       <div style="font-size:18px;font-weight:700;text-align:center;color:${colorHex};margin-bottom:16px;text-transform:uppercase">${score.color} Shield — Why This Score</div>
       <div style="font-size:13px;line-height:1.8;color:#ccc">
         <div style="margin-bottom:8px">• ${score.meta.nhbText} (Design Risk: ${score.meta.hitlRequired ? 'elevated' : 'managed'})</div>
@@ -372,7 +372,7 @@ function getShieldDetailHTML(score, level) {
     .join(', ') || 'none';
 
   return `<div style="padding:20px">
-    <div style="font-size:28px;text-align:center;margin-bottom:6px">${shieldEmoji}</div>
+    <div style="text-align:center;margin-bottom:6px">${_sv(28)}</div>
     <div style="font-size:16px;font-weight:700;text-align:center;color:${colorHex};margin-bottom:14px;text-transform:uppercase">${score.color} Shield — Full Assessment</div>
     <div style="font-size:12px;line-height:1.8;color:#bbb;font-family:monospace">
       <div style="margin-bottom:4px"><strong style="color:#999">OWASP Surface:</strong> ${asiEntries}</div>
