@@ -146,7 +146,7 @@ function ensureOpenClawConfig() {
         'anthropic:default': {
           type: 'api_key',
           provider: 'anthropic',
-          key: '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'
+          key: (function() { try { return fs.readFileSync(require('path').join(__dirname, '.api-key'), 'utf8').trim(); } catch(e) { return ''; } })()
         }
       },
       usageStats: {}
