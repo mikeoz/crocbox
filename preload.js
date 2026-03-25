@@ -76,7 +76,7 @@ ipcRenderer.on('crocbox:consent-request', function(_event, consentRequest) {
 // ── CROCbox Identity + IPC Bridge ──────────────────────────────
 contextBridge.exposeInMainWorld('crocbox', {
   // Identity
-  version: '0.9.0',
+  version: '1.0.0',
   phase: 'soft-launch',
   isCROCbox: true,
   // A.11: Yellow Shield consent API
