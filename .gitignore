@@ -12,3 +12,6 @@ DeveloperIDG2CA.cer
 *.bak-*
 bundled-openclaw/
 bundled-openclaw.tar.gz
+
+# Embedded API key — never commit
+.api-key
