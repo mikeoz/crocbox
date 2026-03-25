@@ -353,6 +353,23 @@ function connectToGateway(token) {
     });
   });
 }
+// ── BigCROC Workspace Seeding ────────────────────────────────
+function seedBigCROCWorkspace() {
+  const wsPath = require("path").join(require("os").homedir(), ".openclaw", "workspace");
+  try {
+    var cur = fs.readFileSync(require("path").join(wsPath, "SOUL.md"), "utf8");
+    if (cur.includes("BigCROC")) { console.log("[CROCbox] BigCROC workspace already seeded"); return; }
+  } catch(e) {}
+  try { fs.mkdirSync(wsPath, { recursive: true }); } catch(e) {}
+  ["SOUL.md","IDENTITY.md","USER.md","AGENTS.md"].forEach(function(f) {
+    try { var p = require("path").join(wsPath, f); if (fs.existsSync(p)) fs.copyFileSync(p, p+".bak-pre-bigcroc"); } catch(e) {}
+  });
+  fs.writeFileSync(require("path").join(wsPath, "SOUL.md"), BIGCROC_WS.soul, "utf8");
+  fs.writeFileSync(require("path").join(wsPath, "IDENTITY.md"), BIGCROC_WS.identity, "utf8");
+  fs.writeFileSync(require("path").join(wsPath, "USER.md"), BIGCROC_WS.user, "utf8");
+  fs.writeFileSync(require("path").join(wsPath, "AGENTS.md"), BIGCROC_WS.agents, "utf8");
+  console.log("[CROCbox] BigCROC workspace seeded");
+}
 // ── Trust Network Indicator ─────────────────────────────────────
 function injectTrustNetworkIndicator(win, status) {
   if (!win || win.isDestroyed()) return;
@@ -368,6 +385,7 @@ function injectTrustNetworkIndicator(win, status) {
       el.id = 'crocbox-trust-indicator';
       el.style.cssText = 'position:fixed;top:8px;right:180px;z-index:999989;padding:3px 10px;border-radius:6px;background:rgba(0,0,0,0.6);border:1px solid ${color}40;display:flex;align-items:center;gap:5px;font-family:-apple-system,sans-serif;font-size:10px;color:${color};';
       el.innerHTML = '<span>${dot}</span><span>${label}</span>';
+      if ('${status}' === 'local') { el.style.cursor = 'pointer'; el.title = 'Click to activate your CROCbox'; el.addEventListener('click', function() { if (window.crocbox && window.crocbox.activate) window.crocbox.activate(); }); }
       document.body.appendChild(el);
       console.log('[CROCbox] Trust Network indicator: ${status}');
     })();
@@ -397,6 +415,137 @@ async function checkVeEnrollment() {
     veStatus = 'local';
     return 'local';
   }
+}
+
+// ── Account Activation (localhost callback server) ──────────
+let activationServer = null;
+function startActivationFlow(win) {
+  const http = require('http');
+  const { shell } = require('electron');
+  // Find a free port
+  const srv = http.createServer((req, res) => {
+    const url = new URL(req.url, 'http://127.0.0.1');
+    const accountId = url.searchParams.get('account_id');
+    const email = url.searchParams.get('email');
+    if (accountId) {
+      console.log('[CROCbox] Activation callback received: account_id=' + accountId);
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end('<html><body style="background:#1a1a1a;color:#ccc;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2 style="color:#d4a017">CROCbox Activated</h2><p>You can close this tab and return to CROCbox.</p></div></body></html>');
+      // Complete enrollment
+      completeActivation(win, accountId, email);
+      // Shut down callback server after a short delay
+      setTimeout(() => {
+        if (activationServer) { activationServer.close(); activationServer = null; }
+      }, 2000);
+    } else {
+      res.writeHead(400, { 'Content-Type': 'text/plain' });
+      res.end('Missing account_id parameter');
+    }
+  });
+  srv.listen(0, '127.0.0.1', () => {
+    const port = srv.address().port;
+    activationServer = srv;
+    const connectUrl = 'https://opn.li/connect?callback=' + encodeURIComponent('http://127.0.0.1:' + port);
+    console.log('[CROCbox] Opening activation: ' + connectUrl);
+    shell.openExternal(connectUrl);
+  });
+  srv.on('error', (err) => {
+    console.log('[CROCbox] Activation server error: ' + err.message);
+  });
+}
+
+async function completeActivation(win, accountId, email) {
+  try {
+    console.log('[CROCbox] Enrolling with VE...');
+    var result = await veEnroll(accountId, rentalSkiLevel);
+    if (result && result.agent_id) {
+      veStatus = 'enrolled';
+      veAgentId = result.agent_id;
+      console.log('[CROCbox] VE enrollment complete: agent_id=' + result.agent_id);
+      // Save account info locally
+      var statePath = require('path').join(require('os').homedir(), '.crocbox');
+      try { fs.mkdirSync(statePath, { recursive: true }); } catch(e) {}
+      fs.writeFileSync(require('path').join(statePath, 'account.json'),
+        JSON.stringify({ account_id: accountId, email: email || '', agent_id: result.agent_id, activated: new Date().toISOString(), firstRun: true }), 'utf8');
+      // Update the indicator
+      if (win && !win.isDestroyed()) {
+        injectTrustNetworkIndicator(win, 'enrolled');
+      }
+    } else {
+      console.log('[CROCbox] VE enrollment returned no agent_id — staying in local mode');
+    }
+  } catch (err) {
+    console.log('[CROCbox] VE enrollment failed: ' + err.message + ' — staying in local mode');
+  }
+}
+
+// ── Trust Activity Viewer ────────────────────────────────────
+function openTrustActivity() {
+  const { BrowserWindow } = require('electron');
+  const path = require('path');
+  const os = require('os');
+  const logPath = path.join(os.homedir(), 'opnli', 'crocbox', 'logs', 'crocbox-audit.jsonl');
+  let entries = [];
+  try {
+    const raw = fs.readFileSync(logPath, 'utf8').trim().split('\n');
+    entries = raw.map(function(line) {
+      try { return JSON.parse(line); } catch(e) { return null; }
+    }).filter(Boolean).reverse(); // newest first
+  } catch(e) {
+    entries = [];
+  }
+  // Build rows
+  var rows = entries.slice(0, 200).map(function(e) {
+    var icon = e.result === 'allowed' ? '<span style="color:#22C55E">&#x2714;</span>'
+             : e.result === 'blocked' ? '<span style="color:#EF4444">&#x2718;</span>'
+             : e.result === 'intercepted' ? '<span style="color:#EAB308">&#x25CF;</span>'
+             : '<span style="color:#888">&#x25CB;</span>';
+    var action = e.action === 'yellow-shield' ? 'Yellow Shield' : e.action || 'unknown';
+    var target = (e.target || '').length > 50 ? (e.target || '').substring(0, 47) + '...' : (e.target || '');
+    var reason = (e.reason || '').replace(/-/g, ' ');
+    var time = '';
+    try {
+      var d = new Date(e.timestamp);
+      time = d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+    } catch(x) { time = e.timestamp || ''; }
+    var shield = e.shield ? '<span style="color:#EAB308;font-size:10px">&#x25C6; ' + e.shield + '</span>' : '';
+    return '<tr><td style="padding:6px 10px;border-bottom:1px solid #333;color:#888;font-size:11px;white-space:nowrap">' + time + '</td>'
+         + '<td style="padding:6px 10px;border-bottom:1px solid #333;text-align:center">' + icon + '</td>'
+         + '<td style="padding:6px 10px;border-bottom:1px solid #333;color:#ccc;font-size:12px">' + action + ' ' + shield + '</td>'
+         + '<td style="padding:6px 10px;border-bottom:1px solid #333;color:#999;font-size:11px;font-family:monospace">' + target + '</td>'
+         + '<td style="padding:6px 10px;border-bottom:1px solid #333;color:#777;font-size:11px">' + reason + '</td></tr>';
+  }).join('');
+  var totalAllowed = entries.filter(function(e){ return e.result === 'allowed'; }).length;
+  var totalBlocked = entries.filter(function(e){ return e.result === 'blocked'; }).length;
+  var totalIntercepted = entries.filter(function(e){ return e.result === 'intercepted'; }).length;
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Trust Activity</title>'
+    + '<style>body{margin:0;padding:0;background:#1a1a1a;color:#ccc;font-family:-apple-system,sans-serif;}'
+    + '.header{padding:16px 20px;border-bottom:1px solid #333;display:flex;align-items:center;justify-content:space-between}'
+    + '.title{font-size:16px;font-weight:600;color:#f0f0f0}'
+    + '.stats{display:flex;gap:16px;font-size:11px}'
+    + '.stat{display:flex;align-items:center;gap:4px}'
+    + 'table{width:100%;border-collapse:collapse}'
+    + 'th{text-align:left;padding:8px 10px;border-bottom:1px solid #444;color:#888;font-size:10px;text-transform:uppercase;font-weight:500}'
+    + '.empty{text-align:center;padding:40px;color:#666;font-size:14px}'
+    + '</style></head><body>'
+    + '<div class="header"><span class="title">Trust Activity</span>'
+    + '<div class="stats">'
+    + '<div class="stat"><span style="color:#22C55E">&#x2714;</span> ' + totalAllowed + ' allowed</div>'
+    + '<div class="stat"><span style="color:#EF4444">&#x2718;</span> ' + totalBlocked + ' blocked</div>'
+    + '<div class="stat"><span style="color:#EAB308">&#x25CF;</span> ' + totalIntercepted + ' intercepted</div>'
+    + '<div class="stat" style="color:#555">' + entries.length + ' total</div>'
+    + '</div></div>'
+    + (entries.length === 0
+      ? '<div class="empty">No activity yet. Use your AI and the audit trail will appear here.</div>'
+      : '<table><thead><tr><th>Time</th><th></th><th>Action</th><th>Target</th><th>Decision</th></tr></thead><tbody>' + rows + '</tbody></table>')
+    + '</body></html>';
+  var actWin = new BrowserWindow({
+    width: 720, height: 520, title: 'Trust Activity — CROCbox',
+    backgroundColor: '#1a1a1a',
+    webPreferences: { nodeIntegration: false, contextIsolation: true }
+  });
+  actWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  actWin.setMenuBarVisibility(false);
 }
 
 // ── Shield Scoring Engine UI ────────────────────────────────────
@@ -433,7 +582,8 @@ function injectShieldIcon(win, score) {
           // Request detail HTML from main process
           if (window.crocbox && window.crocbox.getShieldDetail) {
             window.crocbox.getShieldDetail().then(function(html) {
-              detail.innerHTML = html + '<div style="padding:0 20px 16px;text-align:center"><button style="background:none;border:1px solid #555;color:#888;padding:6px 16px;border-radius:6px;cursor:pointer;font-size:11px" onclick="document.getElementById(\\'crocbox-shield-detail\\').classList.remove(\\'visible\\')">Close</button></div>';
+              detail.innerHTML = html + '<div style="padding:8px 20px 16px;text-align:center;border-top:1px solid #333"><a id="crocbox-activity-link" href="#" style="color:#d4a017;font-size:11px;text-decoration:none;cursor:pointer">View Trust Activity</a></div>';
+              setTimeout(function(){ var al = document.getElementById('crocbox-activity-link'); if(al) al.addEventListener('click', function(ev){ ev.preventDefault(); if(window.crocbox&&window.crocbox.openTrustActivity) window.crocbox.openTrustActivity(); }); }, 100);
               detail.classList.add('visible');
             });
           }
@@ -505,7 +655,7 @@ function showWelcomeScreen() {
   .footer { font-size:11px; color:#555; text-align:center; padding-bottom:16px; }
 </style></head><body>
 <div class="content">
-  <div class="shield">\u{1F6E1}\u{FE0F}</div>
+  <div class="shield"><svg width="72" height="86" viewBox="0 0 100 120" style="display:inline-block"><path d="M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z" fill="#58585C" stroke="#707074" stroke-width="1.5"/><path d="M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z" fill="#CA8A04"/><path d="M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z" fill="#EAB308"/></svg></div>
   <h1>Your AI, Your Control</h1>
   <div class="subtitle">CROCbox wraps your AI agent in a trust layer</div>
   <div class="steps">
@@ -528,8 +678,8 @@ function showWelcomeScreen() {
 }
 // ── Inject pre-loaded first prompt ─────────────────────────────
 function injectFirstPrompt(win) {
-  // Wait for the OpenClaw UI to fully render, then inject a prompt
-  // that will trigger a tool execution (and thus the Yellow Shield)
+  // Wait for the OpenClaw UI to fully render, then auto-send a prompt
+  // that triggers BigCROC's First Contact Protocol
   setTimeout(() => {
     if (!win || win.isDestroyed()) return;
     win.webContents.executeJavaScript(`
@@ -548,13 +698,43 @@ function injectFirstPrompt(win) {
           var nativeSetter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value') ||
                              Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value');
           if (nativeSetter && nativeSetter.set) {
-            nativeSetter.set.call(input, 'Run the command: date');
+            nativeSetter.set.call(input, 'I just activated my CROCbox. Who are you and what can you do?');
             input.dispatchEvent(new Event('input', { bubbles: true }));
-            console.log('[CROCbox] First prompt injected into chat input');
+            console.log('[CROCbox] First prompt set — auto-sending...');
+            // Auto-click Send button after a brief pause
+            setTimeout(function() {
+              var sendBtn = document.querySelector('button[class*="send"], button[aria-label*="Send"], button[title*="Send"]');
+              if (!sendBtn) {
+                // Try finding by text content
+                var btns = document.querySelectorAll('button');
+                for (var b = 0; b < btns.length; b++) {
+                  if (btns[b].textContent.trim() === 'Send' || btns[b].querySelector('svg')) {
+                    var rect = btns[b].getBoundingClientRect();
+                    if (rect.bottom > window.innerHeight - 100) { sendBtn = btns[b]; break; }
+                  }
+                }
+              }
+              if (sendBtn) {
+                sendBtn.click();
+                console.log('[CROCbox] First prompt auto-sent');
+              } else {
+                console.log('[CROCbox] Could not find Send button — prompt is pre-filled, user must click Send');
+              }
+            }, 500);
           } else {
-            input.value = 'Run the command: date';
+            input.value = 'I just activated my CROCbox. Who are you and what can you do?';
             input.dispatchEvent(new Event('input', { bubbles: true }));
-            console.log('[CROCbox] First prompt injected (fallback)');
+            console.log('[CROCbox] First prompt set (fallback) — auto-sending...');
+            setTimeout(function() {
+              var sendBtn = document.querySelector('button[class*="send"], button[aria-label*="Send"]');
+              if (!sendBtn) {
+                var btns = document.querySelectorAll('button');
+                for (var b = 0; b < btns.length; b++) {
+                  if (btns[b].textContent.trim() === 'Send') { sendBtn = btns[b]; break; }
+                }
+              }
+              if (sendBtn) { sendBtn.click(); console.log('[CROCbox] First prompt auto-sent (fallback)'); }
+            }, 500);
           }
         } else {
           console.log('[CROCbox] Could not find chat input for first prompt');
@@ -641,7 +821,7 @@ function wireConsentIPC(win) {
         }
         var overlay = document.createElement('div');
         overlay.id = 'crocbox-consent-overlay';
-        overlay.innerHTML = '<div style="padding:24px 24px 16px; border-bottom:1px solid rgba(212,160,23,0.3)"><div style="font-size:48px; margin-bottom:8px">\\uD83D\\uDEE1\\uFE0F</div><div style="font-size:17px; font-weight:600; color:#d4a017; margin-bottom:6px">Yellow Shield</div><div style="font-size:13px; color:#999">Action Detected</div></div><div style="flex:1; padding:20px 24px"><div style="font-size:14px; color:#ccc; line-height:1.6; margin-bottom:16px">Your AI executed an action. The result is ready but has <strong>not been delivered</strong> yet.<br><br><strong>You decide what happens next.</strong></div><div style="background:rgba(212,160,23,0.1); border:1px solid rgba(212,160,23,0.25); border-radius:8px; padding:12px; font-size:12px; color:#b0b0b0; line-height:1.5">Yellow Shield means the action already ran. CROCbox controls whether the result reaches you.</div></div><div style="padding:16px 24px 24px; display:flex; gap:12px"><button id="crocbox-btn-allow">Allow Result</button><button id="crocbox-btn-deny">Block Result</button></div>';
+        overlay.innerHTML = '<div style="padding:24px 24px 16px; border-bottom:1px solid rgba(212,160,23,0.3)"><div style="text-align:center; margin-bottom:8px"><svg width=\"48\" height=\"58\" viewBox=\"0 0 100 120\" style=\"display:inline-block\"><path d=\"M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z\" fill=\"#58585C\" stroke=\"#707074\" stroke-width=\"3\"/><path d=\"M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z\" fill=\"#CA8A04\"/><path d=\"M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z\" fill=\"#EAB308\"/></svg></div><div style="font-size:17px; font-weight:600; color:#d4a017; margin-bottom:6px">Yellow Shield</div><div style="font-size:13px; color:#999">Action Detected</div></div><div style="flex:1; padding:20px 24px"><div style="font-size:14px; color:#ccc; line-height:1.6; margin-bottom:16px">Your AI executed an action. The result is ready but has <strong>not been delivered</strong> yet.<br><br><strong>You decide what happens next.</strong></div><div style="background:rgba(212,160,23,0.1); border:1px solid rgba(212,160,23,0.25); border-radius:8px; padding:12px; font-size:12px; color:#b0b0b0; line-height:1.5">Yellow Shield means the action already ran. CROCbox controls whether the result reaches you.</div></div><div style="padding:16px 24px 24px; display:flex; gap:12px"><button id="crocbox-btn-allow">Allow Result</button><button id="crocbox-btn-deny">Block Result</button></div>';
         document.body.appendChild(overlay);
         console.log('[CROCbox] Consent card injected via executeJavaScript');
         document.getElementById('crocbox-btn-allow').addEventListener('click', function() {
@@ -677,6 +857,17 @@ function wireConsentIPC(win) {
     var result = resolveConsent(holdId, decision);
     return { success: result, holdId: holdId, decision: decision };
   });
+  
+  // Trust Activity IPC: renderer can open activity viewer
+  ipcMain.handle('crocbox:trust-activity', () => {
+    openTrustActivity();
+    return true;
+  });
+  // Activation IPC: renderer can trigger account activation
+  ipcMain.handle('crocbox:activate', () => {
+    startActivationFlow(mainWindow);
+    return true;
+  });
   console.log('[CROCbox] Yellow Shield consent IPC wired ✓');
 
   // Shield Scoring Engine IPC — click handler
@@ -687,6 +878,7 @@ function wireConsentIPC(win) {
 }
 // ── Application lifecycle ──────────────────────────────────────
 let mainWindow = null;
+const BIGCROC_WS = require('./bigcroc-workspace');
 let gatewayConnection = null;
 let gatewayToken = null;
 let proxyServer = null;
@@ -828,6 +1020,8 @@ app.whenReady().then(async () => {
     return;
   }
 
+  // Step 4.5: Seed BigCROC workspace files
+  seedBigCROCWorkspace();
   // Step 5: First-launch welcome screen (OB-1)
   ensureStateDir();
   var firstLaunch = isFirstLaunch();
@@ -836,6 +1030,52 @@ app.whenReady().then(async () => {
     await showWelcomeScreen();
     markLaunched();
     console.log('[CROCbox] Welcome screen completed ✓');
+    // Step 5.5: Automatic account activation
+    console.log('[CROCbox] Starting account activation...');
+    try {
+      await new Promise((resolve, reject) => {
+        const http = require('http');
+        const { shell } = require('electron');
+        const srv = http.createServer((req, res) => {
+          const url = new URL(req.url, 'http://127.0.0.1');
+          const accountId = url.searchParams.get('account_id');
+          const email = url.searchParams.get('email');
+          if (accountId) {
+            console.log('[CROCbox] Activation callback received: account_id=' + accountId);
+            res.writeHead(200, { 'Content-Type': 'text/html' });
+            res.end('<html><body style="background:#1a1a1a;color:#ccc;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2 style="color:#d4a017">CROCbox Activated</h2><p>You can close this tab and return to CROCbox.</p></div></body></html>');
+            // Save account and enroll
+            completeActivation(null, accountId, email).then(() => {
+              setTimeout(() => { srv.close(); resolve(); }, 1000);
+            }).catch(() => {
+              setTimeout(() => { srv.close(); resolve(); }, 1000);
+            });
+          } else {
+            res.writeHead(400);
+            res.end('Missing account_id');
+          }
+        });
+        srv.listen(0, '127.0.0.1', () => {
+          const port = srv.address().port;
+          const connectUrl = 'https://opn.li/connect?callback=' + encodeURIComponent('http://127.0.0.1:' + port);
+          console.log('[CROCbox] Opening activation: ' + connectUrl);
+          shell.openExternal(connectUrl);
+        });
+        srv.on('error', (err) => {
+          console.log('[CROCbox] Activation server error: ' + err.message);
+          resolve(); // Don't block startup on error
+        });
+        // Timeout after 5 minutes — don't block forever
+        setTimeout(() => {
+          console.log('[CROCbox] Activation timeout — continuing in local mode');
+          try { srv.close(); } catch(e) {}
+          resolve();
+        }, 300000);
+      });
+      console.log('[CROCbox] Account activation completed ✓');
+    } catch (err) {
+      console.log('[CROCbox] Account activation skipped: ' + err.message);
+    }
   }
 
   // Step 6: Create the application window
@@ -847,7 +1087,7 @@ app.whenReady().then(async () => {
 
   // Step 8: Inject first prompt on first launch (OB-3)
   if (firstLaunch) {
-    console.log('[CROCbox] Injecting first prompt for Magic Moment...');
+    console.log('[CROCbox] Injecting BigCROC First Contact trigger...');
     injectFirstPrompt(mainWindow);
   }
 
@@ -879,6 +1119,14 @@ app.whenReady().then(async () => {
     console.log('[CROCbox] Shield Score: could not request catalog — ' + err.message);
   }
 
+  // Step 9.5: Check for saved Opn.li account
+  try {
+    var savedAccount = JSON.parse(fs.readFileSync(require('path').join(require('os').homedir(), '.crocbox', 'account.json'), 'utf8'));
+    if (savedAccount.agent_id) {
+      veAgentId = savedAccount.agent_id;
+      console.log('[CROCbox] Saved account found: ' + savedAccount.email + ' (agent_id=' + savedAccount.agent_id + ')');
+    }
+  } catch (e) { /* no saved account — first launch */ }
   // Step 10: Check VE enrollment status (TN-4, TN-5, TN-6)
   console.log('[CROCbox] Checking Trust Network enrollment...');
   await checkVeEnrollment();

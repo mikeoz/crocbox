@@ -61,6 +61,7 @@
       "ws-proxy.js",
       "shield-score.js",
       "card_ve_client.js",
+      "bigcroc-workspace.js",
       "package.json",
       "node_modules/**/*"
     ],

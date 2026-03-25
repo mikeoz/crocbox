@@ -100,6 +100,15 @@ contextBridge.exposeInMainWorld('crocbox', {
   resolveConsent: function(holdId, decision) {
     console.log('[CROCbox Preload] Resolving consent: holdId=' + holdId + ' decision=' + decision);
     return ipcRenderer.invoke('crocbox:consent-resolve', holdId, decision);
+  },
+  // Account activation — opens opn.li/connect in browser
+  activate: function() {
+    console.log("[CROCbox Preload] Activation requested");
+    return ipcRenderer.invoke("crocbox:activate");
+  },
+  // Trust Activity viewer
+  openTrustActivity: function() {
+    return ipcRenderer.invoke("crocbox:trust-activity");
   }
 });
 console.log('[CROCbox Preload] Preload script loaded (Yellow Shield IPC active)');
