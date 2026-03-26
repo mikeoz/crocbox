@@ -109,6 +109,18 @@ contextBridge.exposeInMainWorld('crocbox', {
   // Trust Activity viewer
   openTrustActivity: function() {
     return ipcRenderer.invoke("crocbox:trust-activity");
+  },
+  // keyCARD — manage API keys
+  openKeyCARD: function() {
+    return ipcRenderer.invoke("crocbox:open-keycard");
+  },
+  // Trust Model — view Trust.md
+  openTrustModel: function() {
+    return ipcRenderer.invoke("crocbox:open-trust-model");
+  },
+  // About CROCbox
+  openAbout: function() {
+    return ipcRenderer.invoke("crocbox:open-about");
   }
 });
 console.log('[CROCbox Preload] Preload script loaded (Yellow Shield IPC active)');

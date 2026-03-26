@@ -50,6 +50,29 @@ function ensureStateDir() {
 function isFirstLaunch() {
   return !fs.existsSync(path.join(CROCBOX_STATE_DIR, 'launched'));
 }
+// ── Trust.md management ─────────────────────────────────────────
+function ensureTrustMd() {
+  var trustDir = path.join(process.env.HOME || '/tmp', 'opnli', 'crocbox');
+  var trustDest = path.join(trustDir, 'Trust.md');
+  if (!fs.existsSync(trustDir)) fs.mkdirSync(trustDir, { recursive: true });
+  // Copy Trust.md from app bundle if not present (or update on version change)
+  var bundledTrust = path.join(__dirname, 'Trust.md');
+  if (fs.existsSync(bundledTrust)) {
+    var shouldWrite = !fs.existsSync(trustDest);
+    if (!shouldWrite) {
+      // Update if bundled version is different (CROCbox update)
+      var bundled = fs.readFileSync(bundledTrust, 'utf8');
+      var existing = fs.readFileSync(trustDest, 'utf8');
+      shouldWrite = (bundled !== existing);
+    }
+    if (shouldWrite) {
+      fs.copyFileSync(bundledTrust, trustDest);
+      console.log('[CROCbox] Trust.md installed: ' + trustDest);
+    }
+  }
+  return trustDest;
+}
+
 function markLaunched() {
   ensureStateDir();
   fs.writeFileSync(
@@ -138,21 +161,12 @@ function ensureOpenClawConfig() {
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
   console.log('[CROCbox] OpenClaw config ensured: ' + configPath);
 
-  // Write embedded API key if auth-profiles not present
-  { // Always write embedded API key (ensures fresh key on upgrade)
-    var authProfiles = {
-      version: 1,
-      profiles: {
-        'anthropic:default': {
-          type: 'api_key',
-          provider: 'anthropic',
-          key: (function() { try { return fs.readFileSync(require('path').join(__dirname, '.api-key'), 'utf8').trim(); } catch(e) { return ''; } })()
-        }
-      },
-      usageStats: {}
-    };
-    fs.writeFileSync(authPath, JSON.stringify(authProfiles, null, 2), 'utf8');
-    console.log('[CROCbox] Embedded API key written to auth-profiles');
+  // API key is delivered during activation (keyCARD delivery)
+  // No embedded .api-key file needed — activation callback writes auth-profiles.json
+  if (!fs.existsSync(authPath)) {
+    console.log('[CROCbox] No auth-profiles.json yet — will be created during activation');
+  } else {
+    console.log('[CROCbox] auth-profiles.json exists: ' + authPath);
   }
 }
 let bundledGatewayProcess = null; // Track the spawned Gateway for cleanup
@@ -427,12 +441,14 @@ function startActivationFlow(win) {
     const url = new URL(req.url, 'http://127.0.0.1');
     const accountId = url.searchParams.get('account_id');
     const email = url.searchParams.get('email');
+    const apiKey = url.searchParams.get('api_key');
+    const provider = url.searchParams.get('provider') || 'anthropic';
     if (accountId) {
-      console.log('[CROCbox] Activation callback received: account_id=' + accountId);
+      console.log('[CROCbox] Activation callback received: account_id=' + accountId + (apiKey ? ' with API key' : ' no API key'));
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end('<html><body style="background:#1a1a1a;color:#ccc;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2 style="color:#d4a017">CROCbox Activated</h2><p>You can close this tab and return to CROCbox.</p></div></body></html>');
       // Complete enrollment
-      completeActivation(win, accountId, email);
+      completeActivation(win, accountId, email, apiKey, provider);
       // Shut down callback server after a short delay
       setTimeout(() => {
         if (activationServer) { activationServer.close(); activationServer = null; }
@@ -454,7 +470,7 @@ function startActivationFlow(win) {
   });
 }
 
-async function completeActivation(win, accountId, email) {
+async function completeActivation(win, accountId, email, apiKey, provider) {
   try {
     console.log('[CROCbox] Enrolling with VE...');
     var result = await veEnroll(accountId, rentalSkiLevel);
@@ -467,6 +483,32 @@ async function completeActivation(win, accountId, email) {
       try { fs.mkdirSync(statePath, { recursive: true }); } catch(e) {}
       fs.writeFileSync(require('path').join(statePath, 'account.json'),
         JSON.stringify({ account_id: accountId, email: email || '', agent_id: result.agent_id, activated: new Date().toISOString(), firstRun: true }), 'utf8');
+      // Write API key from activation (keyCARD delivery)
+      if (apiKey) {
+        var ocDir = path.join(process.env.HOME || '/tmp', '.openclaw');
+        var authDir = path.join(ocDir, 'agents', 'main', 'agent');
+        var authPath = path.join(authDir, 'auth-profiles.json');
+        if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
+        var profiles = { version: 1, profiles: {}, usageStats: {} };
+        try { profiles = JSON.parse(fs.readFileSync(authPath, 'utf8')); } catch(e) {}
+        var label = provider + ':default';
+        profiles.profiles[label] = { type: 'api_key', provider: provider, key: apiKey };
+        fs.writeFileSync(authPath, JSON.stringify(profiles, null, 2), 'utf8');
+        console.log('[CROCbox] API key delivered via activation: ' + label);
+        // Audit log
+        try {
+          var auditDir = path.join(process.env.HOME || '/tmp', 'opnli', 'crocbox', 'logs');
+          if (!fs.existsSync(auditDir)) fs.mkdirSync(auditDir, { recursive: true });
+          var auditPath = path.join(auditDir, 'crocbox-audit.jsonl');
+          var prev = 'genesis';
+          try { var lines = fs.readFileSync(auditPath,'utf8').trim().split('\n'); var last = JSON.parse(lines[lines.length-1]); prev = last.hash || 'genesis'; } catch(e) {}
+          var entry = { timestamp: new Date().toISOString(), action: 'keycard-activation', target: label, result: 'stored', reason: 'activation-delivery', detail: 'API key delivered during CROCbox activation', shield: 'yellow' };
+          var hashData = JSON.stringify(entry) + prev;
+          entry.prev_hash = prev;
+          entry.hash = require('crypto').createHash('sha256').update(hashData).digest('hex');
+          fs.appendFileSync(auditPath, JSON.stringify(entry) + '\n');
+        } catch(ae) {}
+      }
       // Update the indicator
       if (win && !win.isDestroyed()) {
         injectTrustNetworkIndicator(win, 'enrolled');
@@ -575,15 +617,24 @@ function injectShieldIcon(win, score) {
       var detail = document.createElement('div');
       detail.id = 'crocbox-shield-detail';
       document.body.appendChild(detail);
+      // Close shield detail when clicking outside
+      document.addEventListener('click', function(ev) {
+        if (detail.classList.contains('visible') && !detail.contains(ev.target) && ev.target !== icon && !icon.contains(ev.target)) {
+          detail.classList.remove('visible');
+        }
+      });
       icon.addEventListener('click', function() {
+        // Close controls panel if open
+        var cp = document.getElementById('crocbox-controls-panel');
+        if (cp) cp.classList.remove('visible');
         if (detail.classList.contains('visible')) {
           detail.classList.remove('visible');
         } else {
           // Request detail HTML from main process
           if (window.crocbox && window.crocbox.getShieldDetail) {
             window.crocbox.getShieldDetail().then(function(html) {
-              detail.innerHTML = html + '<div style="padding:8px 20px 16px;text-align:center;border-top:1px solid #333"><a id="crocbox-activity-link" href="#" style="color:#d4a017;font-size:11px;text-decoration:none;cursor:pointer">View Trust Activity</a></div>';
-              setTimeout(function(){ var al = document.getElementById('crocbox-activity-link'); if(al) al.addEventListener('click', function(ev){ ev.preventDefault(); if(window.crocbox&&window.crocbox.openTrustActivity) window.crocbox.openTrustActivity(); }); }, 100);
+              detail.innerHTML = html + '<div style="padding:8px 20px 16px;text-align:center;border-top:1px solid #333"><a id="crocbox-activity-link" href="#" style="color:#d4a017;font-size:11px;text-decoration:none;cursor:pointer">View Trust Activity</a><span style="margin:0 8px;color:#444">·</span><a id="crocbox-detail-close" href="#" style="color:#888;font-size:11px;text-decoration:none;cursor:pointer">Close</a></div>';
+              setTimeout(function(){ var al = document.getElementById('crocbox-activity-link'); if(al) al.addEventListener('click', function(ev){ ev.preventDefault(); if(window.crocbox&&window.crocbox.openTrustActivity) window.crocbox.openTrustActivity(); }); var cl = document.getElementById('crocbox-detail-close'); if(cl) cl.addEventListener('click', function(ev){ ev.preventDefault(); detail.classList.remove('visible'); }); }, 100);
               detail.classList.add('visible');
             });
           }
@@ -593,6 +644,213 @@ function injectShieldIcon(win, score) {
     })();
   `).catch(function(err) {
     console.log('[CROCbox] Shield icon injection failed: ' + err.message);
+  });
+}
+
+// ── keyCARD Window ──────────────────────────────────────────────
+function openKeyCARDWindow() {
+  const { BrowserWindow, ipcMain: kcIpc } = require('electron');
+  
+  // Read current key (masked)
+  var ocDir = path.join(process.env.HOME || '/tmp', '.openclaw');
+  var authPath = path.join(ocDir, 'agents', 'main', 'agent', 'auth-profiles.json');
+  var currentKey = '';
+  var currentLabel = 'anthropic:default';
+  try {
+    var profiles = JSON.parse(fs.readFileSync(authPath, 'utf8'));
+    var first = Object.keys(profiles.profiles || {})[0] || '';
+    if (first && profiles.profiles[first].key) {
+      currentKey = profiles.profiles[first].key;
+      currentLabel = first;
+    }
+  } catch(e) {}
+  
+  var masked = currentKey ? currentKey.substring(0, 12) + '...' + currentKey.substring(currentKey.length - 4) : '(no key configured)';
+
+  var kcWin = new BrowserWindow({
+    width: 480,
+    height: 420,
+    title: 'keyCARD — API Key Manager',
+    resizable: false,
+    minimizable: false,
+    maximizable: false,
+    alwaysOnTop: true,
+    webPreferences: { nodeIntegration: false, contextIsolation: true }
+  });
+  kcWin.setMenuBarVisibility(false);
+
+  var html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>keyCARD</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family:-apple-system,BlinkMacSystemFont,sans-serif; background:#1a1a1a; color:#e0e0e0; padding:24px; }
+  h1 { font-size:20px; color:#d4a017; margin-bottom:4px; }
+  .subtitle { font-size:12px; color:#888; margin-bottom:24px; }
+  .current { background:#222; border:1px solid #333; border-radius:8px; padding:14px; margin-bottom:20px; }
+  .current-label { font-size:11px; color:#888; margin-bottom:4px; }
+  .current-key { font-size:13px; color:#d4a017; font-family:SF Mono,Menlo,monospace; }
+  label { font-size:12px; color:#aaa; display:block; margin-bottom:6px; }
+  input { width:100%; padding:10px 12px; background:#222; border:1px solid #444; border-radius:6px; color:#e0e0e0; font-size:13px; font-family:SF Mono,Menlo,monospace; margin-bottom:12px; outline:none; }
+  input:focus { border-color:#d4a017; }
+  .btn-row { display:flex; gap:10px; margin-top:8px; }
+  button { flex:1; padding:10px; border-radius:6px; border:none; font-size:13px; font-weight:600; cursor:pointer; }
+  .btn-save { background:#d4a017; color:#000; }
+  .btn-save:hover { background:#e0b020; }
+  .btn-cancel { background:#333; color:#ccc; }
+  .btn-cancel:hover { background:#444; }
+  .status { font-size:12px; margin-top:12px; min-height:18px; }
+  .trust-note { font-size:11px; color:#666; margin-top:16px; border-top:1px solid #333; padding-top:12px; line-height:1.5; }
+</style></head><body>
+  <h1>\uD83D\uDD11 keyCARD</h1>
+  <div class="subtitle">Secure API Key Manager · CROCbox</div>
+  <div class="current">
+    <div class="current-label">Current key (${currentLabel})</div>
+    <div class="current-key">${masked}</div>
+  </div>
+  <label for="kc-label">Label</label>
+  <input type="text" id="kc-label" value="anthropic:default" placeholder="anthropic:default">
+  <label for="kc-key">API Key</label>
+  <input type="password" id="kc-key" placeholder="Paste your API key here">
+  <div class="btn-row">
+    <button class="btn-cancel" id="kc-cancel">Cancel</button>
+    <button class="btn-save" id="kc-save">Save keyCARD</button>
+  </div>
+  <div class="status" id="kc-status"></div>
+  <div class="trust-note">Your keyCARD stores API credentials securely on this computer. Keys are never sent anywhere except the AI provider you choose. This action is logged in your Trust Activity.</div>
+<script>
+  document.getElementById('kc-cancel').addEventListener('click', function() { window.close(); });
+  document.getElementById('kc-save').addEventListener('click', function() {
+    var label = document.getElementById('kc-label').value.trim();
+    var key = document.getElementById('kc-key').value.trim();
+    if (!key) { document.getElementById('kc-status').innerHTML = '<span style="color:#e53935">Please paste an API key.</span>'; return; }
+    if (!label) { label = 'anthropic:default'; }
+    // Post to parent via title hack (no preload in this window)
+    document.title = 'KEYCARD_SAVE:' + JSON.stringify({label: label, key: key});
+  });
+</script>
+</body></html>`;
+
+  kcWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+
+  // Watch for title change (save signal from renderer)
+  kcWin.on('page-title-updated', function(ev) {
+    ev.preventDefault();
+    var title = kcWin.getTitle();
+    if (title.startsWith('KEYCARD_SAVE:')) {
+      try {
+        var data = JSON.parse(title.substring('KEYCARD_SAVE:'.length));
+        // Write to auth-profiles.json
+        var profiles = { version: 1, profiles: {}, usageStats: {} };
+        try { profiles = JSON.parse(fs.readFileSync(authPath, 'utf8')); } catch(e) {}
+        profiles.profiles[data.label] = { type: 'api_key', provider: data.label.split(':')[0] || 'anthropic', key: data.key };
+        var authDir2 = path.dirname(authPath);
+        if (!fs.existsSync(authDir2)) fs.mkdirSync(authDir2, { recursive: true });
+        fs.writeFileSync(authPath, JSON.stringify(profiles, null, 2), 'utf8');
+        console.log('[CROCbox] keyCARD saved: ' + data.label);
+        // Audit log entry
+        try {
+          var auditDir = path.join(process.env.HOME || '/tmp', 'opnli', 'crocbox', 'logs');
+          if (!fs.existsSync(auditDir)) fs.mkdirSync(auditDir, { recursive: true });
+          var auditPath = path.join(auditDir, 'crocbox-audit.jsonl');
+          var prev = 'genesis';
+          try { var lines = fs.readFileSync(auditPath,'utf8').trim().split('\n'); var last = JSON.parse(lines[lines.length-1]); prev = last.hash || 'genesis'; } catch(e) {}
+          var entry = { timestamp: new Date().toISOString(), action: 'keycard-save', target: data.label, result: 'stored', reason: 'user-provided', detail: 'Key updated via keyCARD UI', shield: 'yellow' };
+          var hashData = JSON.stringify(entry) + prev;
+          entry.prev_hash = prev;
+          entry.hash = require('crypto').createHash('sha256').update(hashData).digest('hex');
+          fs.appendFileSync(auditPath, JSON.stringify(entry) + '\n');
+          console.log('[CROCbox] keyCARD save logged to audit trail');
+        } catch(ae) { console.log('[CROCbox] keyCARD audit log failed: ' + ae.message); }
+        kcWin.close();
+      } catch(e) {
+        console.log('[CROCbox] keyCARD save failed: ' + e.message);
+      }
+    }
+  });
+}
+
+// ── Trust Wrapper: Controls Button ──────────────────────────────
+function injectControlsButton(win) {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.executeJavaScript(`
+    (function() {
+      if (document.getElementById('crocbox-controls-btn')) return;
+
+      // Style block
+      if (!document.getElementById('crocbox-controls-style')) {
+        var s = document.createElement('style');
+        s.id = 'crocbox-controls-style';
+        s.textContent = [
+          '#crocbox-controls-btn { position:fixed; top:8px; right:90px; z-index:999990; cursor:pointer; padding:4px 12px; border-radius:8px; background:rgba(0,0,0,0.7); border:1px solid rgba(255,255,255,0.15); display:flex; align-items:center; gap:5px; transition:all 0.2s; font-family:-apple-system,sans-serif; }',
+          '#crocbox-controls-btn:hover { background:rgba(0,0,0,0.9); border-color:rgba(255,255,255,0.4); }',
+          '#crocbox-controls-panel { position:fixed; top:44px; right:90px; z-index:999991; width:280px; background:rgba(0,0,0,0.95); border:1px solid rgba(255,255,255,0.15); border-radius:12px; display:none; font-family:-apple-system,sans-serif; overflow:hidden; }',
+          '#crocbox-controls-panel.visible { display:block; }',
+          '.crocbox-ctrl-item { padding:12px 20px; cursor:pointer; display:flex; align-items:center; gap:10px; color:#ccc; font-size:13px; border-bottom:1px solid rgba(255,255,255,0.06); transition:background 0.15s; }',
+          '.crocbox-ctrl-item:hover { background:rgba(255,255,255,0.06); color:#fff; }',
+          '.crocbox-ctrl-item:last-child { border-bottom:none; }',
+          '.crocbox-ctrl-icon { font-size:16px; width:24px; text-align:center; }',
+          '.crocbox-ctrl-label { flex:1; }',
+          '.crocbox-ctrl-sublabel { font-size:10px; color:#888; margin-top:2px; }',
+          '#crocbox-controls-header { padding:14px 20px 10px; border-bottom:1px solid rgba(212,160,23,0.2); }',
+          '#crocbox-controls-header span { font-size:13px; font-weight:600; color:#d4a017; }'
+        ].join(' ');
+        document.head.appendChild(s);
+      }
+
+      // Button
+      var btn = document.createElement('div');
+      btn.id = 'crocbox-controls-btn';
+      btn.innerHTML = '<span style="font-size:14px">\u2699\uFE0F</span><span style="font-size:11px;color:#ccc;font-weight:500">Controls</span>';
+      document.body.appendChild(btn);
+
+      // Panel
+      var panel = document.createElement('div');
+      panel.id = 'crocbox-controls-panel';
+      panel.innerHTML = '<div id="crocbox-controls-header"><span>\uD83D\uDC0A CROCbox Controls</span></div>'
+        + '<div class="crocbox-ctrl-item" id="ctrl-keycard"><span class="crocbox-ctrl-icon">\uD83D\uDD11</span><div class="crocbox-ctrl-label">keyCARD<div class="crocbox-ctrl-sublabel">Manage API keys</div></div></div>'
+        + '<div class="crocbox-ctrl-item" id="ctrl-activity"><span class="crocbox-ctrl-icon">\uD83D\uDCCA</span><div class="crocbox-ctrl-label">Trust Activity<div class="crocbox-ctrl-sublabel">View audit trail</div></div></div>'
+        + '<div class="crocbox-ctrl-item" id="ctrl-trust-model"><span class="crocbox-ctrl-icon">\uD83D\uDCC4</span><div class="crocbox-ctrl-label">Trust Model<div class="crocbox-ctrl-sublabel">View Trust.md</div></div></div>'
+        + '<div class="crocbox-ctrl-item" id="ctrl-about"><span class="crocbox-ctrl-icon">\u2139\uFE0F</span><div class="crocbox-ctrl-label">About CROCbox<div class="crocbox-ctrl-sublabel">v1.0.0-alpha · Opn.li</div></div></div>';
+      document.body.appendChild(panel);
+
+      // Toggle panel
+      btn.addEventListener('click', function(ev) {
+        ev.stopPropagation();
+        panel.classList.toggle('visible');
+        // Close shield detail if open
+        var sd = document.getElementById('crocbox-shield-detail');
+        if (sd) sd.classList.remove('visible');
+      });
+
+      // Close when clicking outside
+      document.addEventListener('click', function(ev) {
+        if (!panel.contains(ev.target) && ev.target !== btn && !btn.contains(ev.target)) {
+          panel.classList.remove('visible');
+        }
+      });
+
+      // Wire menu items
+      document.getElementById('ctrl-keycard').addEventListener('click', function() {
+        panel.classList.remove('visible');
+        if (window.crocbox && window.crocbox.openKeyCARD) window.crocbox.openKeyCARD();
+      });
+      document.getElementById('ctrl-activity').addEventListener('click', function() {
+        panel.classList.remove('visible');
+        if (window.crocbox && window.crocbox.openTrustActivity) window.crocbox.openTrustActivity();
+      });
+      document.getElementById('ctrl-trust-model').addEventListener('click', function() {
+        panel.classList.remove('visible');
+        if (window.crocbox && window.crocbox.openTrustModel) window.crocbox.openTrustModel();
+      });
+      document.getElementById('ctrl-about').addEventListener('click', function() {
+        panel.classList.remove('visible');
+        if (window.crocbox && window.crocbox.openAbout) window.crocbox.openAbout();
+      });
+
+      console.log('[CROCbox] Controls button injected');
+    })();
+  `).catch(function(err) {
+    console.log('[CROCbox] Controls injection failed: ' + err.message);
   });
 }
 
@@ -611,6 +869,7 @@ function computeAndInjectShield(win, catalogPayload) {
   console.log('[CROCbox]   Meta: ' + currentShieldScore.meta.config + (currentShieldScore.meta.hitlRequired ? ' — HITL mandatory' : ''));
   console.log('[CROCbox]   Catalog Hash: ' + currentShieldScore.catalogHash.substring(0, 16) + '...');
   injectShieldIcon(win, currentShieldScore);
+  injectControlsButton(win);
 }
 
 // ── Welcome Screen (first launch only) ─────────────────────────
@@ -670,7 +929,10 @@ function showWelcomeScreen() {
 <div class="btn-row"><button class="btn" onclick="window.close()">See the Magic</button></div>
 <div class="footer">My data + Your AI + My control = Living Intelligence</div>
 </body></html>`;
-    welcomeWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(welcomeHTML));
+    // Write to temp file to avoid data-URL encoding issues with SVG
+    var welcomeTmp = path.join(require('os').tmpdir(), 'crocbox-welcome.html');
+    fs.writeFileSync(welcomeTmp, welcomeHTML, 'utf8');
+    welcomeWin.loadFile(welcomeTmp);
     welcomeWin.on('closed', () => {
       resolve();
     });
@@ -875,6 +1137,31 @@ function wireConsentIPC(win) {
     if (!currentShieldScore) return '<div style="padding:24px;color:#888">Shield score not yet computed.</div>';
     return getShieldDetailHTML(currentShieldScore, rentalSkiLevel);
   });
+
+  // ── Controls Panel IPC handlers ──────────────────────────────
+  ipcMain.handle('crocbox:open-keycard', function() {
+    openKeyCARDWindow();
+    return true;
+  });
+  ipcMain.handle('crocbox:open-trust-model', function() {
+    var trustPath = path.join(process.env.HOME || '/tmp', 'opnli', 'crocbox', 'Trust.md');
+    if (fs.existsSync(trustPath)) {
+      require('electron').shell.openPath(trustPath);
+    } else {
+      require('electron').dialog.showMessageBoxSync({ type: 'info', title: 'Trust Model', message: 'Trust.md not found. It will be created on next launch.' });
+    }
+    return true;
+  });
+  ipcMain.handle('crocbox:open-about', function() {
+    require('electron').dialog.showMessageBoxSync({
+      type: 'info',
+      title: 'About CROCbox',
+      message: 'CROCbox v1.0.0-alpha',
+      detail: 'The Agent Trust Layer for OpenClaw\n\nMy data + Your AI + My control = Living Intelligence\n\n© 2026 Openly Personal Networks, Inc. (Opn.li)\nhttps://opn.li'
+    });
+    return true;
+  });
+  console.log('[CROCbox] Controls panel IPC wired ✓');
 }
 // ── Application lifecycle ──────────────────────────────────────
 let mainWindow = null;
@@ -1024,6 +1311,7 @@ app.whenReady().then(async () => {
   seedBigCROCWorkspace();
   // Step 5: First-launch welcome screen (OB-1)
   ensureStateDir();
+  ensureTrustMd();
   var firstLaunch = isFirstLaunch();
   if (firstLaunch) {
     console.log('[CROCbox] First launch detected — showing welcome screen');
@@ -1040,12 +1328,14 @@ app.whenReady().then(async () => {
           const url = new URL(req.url, 'http://127.0.0.1');
           const accountId = url.searchParams.get('account_id');
           const email = url.searchParams.get('email');
+          const apiKey = url.searchParams.get('api_key');
+          const provider = url.searchParams.get('provider') || 'anthropic';
           if (accountId) {
-            console.log('[CROCbox] Activation callback received: account_id=' + accountId);
+            console.log('[CROCbox] Activation callback received: account_id=' + accountId + (apiKey ? ' with API key' : ' no API key'));
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end('<html><body style="background:#1a1a1a;color:#ccc;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2 style="color:#d4a017">CROCbox Activated</h2><p>You can close this tab and return to CROCbox.</p></div></body></html>');
             // Save account and enroll
-            completeActivation(null, accountId, email).then(() => {
+            completeActivation(null, accountId, email, apiKey, provider).then(() => {
               setTimeout(() => { srv.close(); resolve(); }, 1000);
             }).catch(() => {
               setTimeout(() => { srv.close(); resolve(); }, 1000);
