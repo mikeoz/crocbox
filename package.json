@@ -42,14 +42,20 @@
     },
     "dmg": {
       "title": "CROCbox v${version}",
+      "icon": "assets/CROCbox.icns",
+      "iconSize": 80,
+      "window": {
+        "width": 540,
+        "height": 380
+      },
       "contents": [
         {
-          "x": 130,
-          "y": 220
+          "x": 140,
+          "y": 190
         },
         {
-          "x": 410,
-          "y": 220,
+          "x": 400,
+          "y": 190,
           "type": "link",
           "path": "/Applications"
         }
@@ -63,6 +69,7 @@
       "card_ve_client.js",
       "bigcroc-workspace.js",
       "package.json",
+      "Trust.md",
       "node_modules/**/*"
     ],
     "extraResources": [
@@ -73,6 +80,10 @@
       {
         "from": "bundled-openclaw.tar.gz",
         "to": "bundled-openclaw.tar.gz"
+      },
+      {
+        "from": "Trust.md",
+        "to": "Trust.md"
       }
     ]
   }
