@@ -242,6 +242,27 @@ function getInjectedScript() {
   window.WebSocket.CLOSING = _WS.CLOSING;
   window.WebSocket.CLOSED = _WS.CLOSED;
   console.log('[CROCbox] WS redirect installed: ` + GATEWAY_PORT + ` -> ` + PROXY_PORT + `');
+  // Hide OpenClaw update banner by text content
+  setTimeout(function() {
+    var allDivs = document.querySelectorAll('div');
+    for (var i = 0; i < allDivs.length; i++) {
+      if (allDivs[i].textContent.includes('Update available') && allDivs[i].textContent.includes('Update now')) {
+        allDivs[i].style.display = 'none';
+        console.log('[CROCbox] Update banner hidden');
+        break;
+      }
+    }
+  }, 2000);
+  // Re-check periodically in case SPA re-renders it
+  setInterval(function() {
+    var allDivs = document.querySelectorAll('div');
+    for (var i = 0; i < allDivs.length; i++) {
+      if (allDivs[i].textContent.includes('Update available') && allDivs[i].textContent.includes('Update now')) {
+        allDivs[i].style.display = 'none';
+        break;
+      }
+    }
+  }, 5000);
 })();
 </script>`;
 }
