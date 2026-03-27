@@ -361,8 +361,10 @@ function handleHttpRequest(clientReq, clientRes) {
         if (body.includes('<head>')) {
           modified = body.replace('<head>', '<head><style id="crocbox-hide-update">' +
           '/* Hide OpenClaw update banner — CROCbox pins its own version */' +
-          '[class*="update" i], [class*="Update" i], [data-testid*="update" i] { display:none !important; }' +
-          'div[style*="background"][style*="red"], div[style*="background"][style*="#f"], div[style*="background-color: rgb(254"] { display:none !important; }' +
+          '/* B3: Reserve space for Trust Bar at top of viewport */' +
+          'body { margin-top: 40px !important; }' +
+          '/* B2: Target only the update banner, not all elements with update in class */' +
+          '#crocbox-trust-bar ~ div[style*="background-color: rgb(254"], #crocbox-trust-bar ~ div[style*="background-color: red"] { display:none !important; }' +
           '</style>' + getInjectedScript() + getConsentCardScript());
         } else if (body.includes('<HEAD>')) {
           modified = body.replace('<HEAD>', '<HEAD>' + getInjectedScript() + getConsentCardScript());
