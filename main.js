@@ -486,6 +486,44 @@ function startActivationFlow(win) {
 }
 
 async function completeActivation(win, accountId, email, apiKey, provider) {
+  // Step 1: Write account.json UNCONDITIONALLY (do not gate on VE enrollment)
+  var statePath = require('path').join(require('os').homedir(), '.crocbox');
+  try { fs.mkdirSync(statePath, { recursive: true }); } catch(e) {}
+  var accountFile = require('path').join(statePath, 'account.json');
+  fs.writeFileSync(accountFile,
+    JSON.stringify({ account_id: accountId, email: email || '', activated: new Date().toISOString(), firstRun: true }), 'utf8');
+  console.log('[CROCbox] account.json written: ' + accountFile);
+
+  // Step 2: Write API key UNCONDITIONALLY (do not gate on VE enrollment)
+  if (apiKey) {
+    var ocDir = require('path').join(process.env.HOME || '/tmp', '.openclaw');
+    var authDir = require('path').join(ocDir, 'agents', 'main', 'agent');
+    var authPath = require('path').join(authDir, 'auth-profiles.json');
+    if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
+    var profiles = { version: 1, profiles: {}, usageStats: {} };
+    try { profiles = JSON.parse(fs.readFileSync(authPath, 'utf8')); } catch(e) {}
+    var label = provider + ':default';
+    profiles.profiles[label] = { type: 'api_key', provider: provider, key: apiKey };
+    fs.writeFileSync(authPath, JSON.stringify(profiles, null, 2), 'utf8');
+    console.log('[CROCbox] API key delivered via activation: ' + label);
+    // Audit log
+    try {
+      var auditDir = require('path').join(process.env.HOME || '/tmp', 'opnli', 'crocbox', 'logs');
+      if (!fs.existsSync(auditDir)) fs.mkdirSync(auditDir, { recursive: true });
+      var auditPath = require('path').join(auditDir, 'crocbox-audit.jsonl');
+      var prev = 'genesis';
+      try { var lines = fs.readFileSync(auditPath,'utf8').trim().split('\n'); var last = JSON.parse(lines[lines.length-1]); prev = last.hash || 'genesis'; } catch(e) {}
+      var entry = { timestamp: new Date().toISOString(), action: 'keycard-activation', target: label, result: 'stored', reason: 'activation-delivery', detail: 'API key delivered during CROCbox activation', shield: 'yellow' };
+      var hashData = JSON.stringify(entry) + prev;
+      entry.prev_hash = prev;
+      entry.hash = require('crypto').createHash('sha256').update(hashData).digest('hex');
+      fs.appendFileSync(auditPath, JSON.stringify(entry) + '\n');
+    } catch(ae) {}
+  } else {
+    console.log('[CROCbox] WARNING: No API key in activation callback — BigCROC will not be able to chat');
+  }
+
+  // Step 3: VE enrollment (separate, non-blocking for key delivery)
   try {
     console.log('[CROCbox] Enrolling with VE...');
     var result = await veEnroll(accountId, rentalSkiLevel);
@@ -493,37 +531,12 @@ async function completeActivation(win, accountId, email, apiKey, provider) {
       veStatus = 'enrolled';
       veAgentId = result.agent_id;
       console.log('[CROCbox] VE enrollment complete: agent_id=' + result.agent_id);
-      // Save account info locally
-      var statePath = require('path').join(require('os').homedir(), '.crocbox');
-      try { fs.mkdirSync(statePath, { recursive: true }); } catch(e) {}
-      fs.writeFileSync(require('path').join(statePath, 'account.json'),
-        JSON.stringify({ account_id: accountId, email: email || '', agent_id: result.agent_id, activated: new Date().toISOString(), firstRun: true }), 'utf8');
-      // Write API key from activation (keyCARD delivery)
-      if (apiKey) {
-        var ocDir = path.join(process.env.HOME || '/tmp', '.openclaw');
-        var authDir = path.join(ocDir, 'agents', 'main', 'agent');
-        var authPath = path.join(authDir, 'auth-profiles.json');
-        if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
-        var profiles = { version: 1, profiles: {}, usageStats: {} };
-        try { profiles = JSON.parse(fs.readFileSync(authPath, 'utf8')); } catch(e) {}
-        var label = provider + ':default';
-        profiles.profiles[label] = { type: 'api_key', provider: provider, key: apiKey };
-        fs.writeFileSync(authPath, JSON.stringify(profiles, null, 2), 'utf8');
-        console.log('[CROCbox] API key delivered via activation: ' + label);
-        // Audit log
-        try {
-          var auditDir = path.join(process.env.HOME || '/tmp', 'opnli', 'crocbox', 'logs');
-          if (!fs.existsSync(auditDir)) fs.mkdirSync(auditDir, { recursive: true });
-          var auditPath = path.join(auditDir, 'crocbox-audit.jsonl');
-          var prev = 'genesis';
-          try { var lines = fs.readFileSync(auditPath,'utf8').trim().split('\n'); var last = JSON.parse(lines[lines.length-1]); prev = last.hash || 'genesis'; } catch(e) {}
-          var entry = { timestamp: new Date().toISOString(), action: 'keycard-activation', target: label, result: 'stored', reason: 'activation-delivery', detail: 'API key delivered during CROCbox activation', shield: 'yellow' };
-          var hashData = JSON.stringify(entry) + prev;
-          entry.prev_hash = prev;
-          entry.hash = require('crypto').createHash('sha256').update(hashData).digest('hex');
-          fs.appendFileSync(auditPath, JSON.stringify(entry) + '\n');
-        } catch(ae) {}
-      }
+      // Update account.json with agent_id
+      try {
+        var acct = JSON.parse(fs.readFileSync(accountFile, 'utf8'));
+        acct.agent_id = result.agent_id;
+        fs.writeFileSync(accountFile, JSON.stringify(acct, null, 2), 'utf8');
+      } catch(e) {}
       // Update the indicator
       if (win && !win.isDestroyed()) {
         injectTrustNetworkIndicator(win, 'enrolled');
@@ -1067,8 +1080,8 @@ function showWelcomeScreen() {
   .step-text { font-size:14px; line-height:1.5; color:#ccc; padding-top:3px; }
   .step-text strong { color:#f0f0f0; }
   .btn-row { padding:24px 40px; display:flex; justify-content:center; -webkit-app-region:no-drag; }
-  .btn { padding:14px 48px; border:none; border-radius:10px; font-size:16px; font-weight:600;
-         cursor:pointer; background:#d4a017; color:#000; }
+  .btn { padding:14px 48px; border:none; border-radius:10px; font-size:16px; font-weight:500;
+         cursor:pointer; background:#d4a017; color:#000; font-family:-apple-system,system-ui,Helvetica,Arial,sans-serif; }
   .btn:hover { background:#e0b020; }
   .footer { font-size:11px; color:#555; text-align:center; padding-bottom:16px; }
 </style></head><body>
