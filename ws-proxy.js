@@ -359,7 +359,11 @@ function handleHttpRequest(clientReq, clientRes) {
       proxyRes.on('end', () => {
         let modified;
         if (body.includes('<head>')) {
-          modified = body.replace('<head>', '<head>' + getInjectedScript() + getConsentCardScript());
+          modified = body.replace('<head>', '<head><style id="crocbox-hide-update">' +
+          '/* Hide OpenClaw update banner — CROCbox pins its own version */' +
+          '[class*="update" i], [class*="Update" i], [data-testid*="update" i] { display:none !important; }' +
+          'div[style*="background"][style*="red"], div[style*="background"][style*="#f"], div[style*="background-color: rgb(254"] { display:none !important; }' +
+          '</style>' + getInjectedScript() + getConsentCardScript());
         } else if (body.includes('<HEAD>')) {
           modified = body.replace('<HEAD>', '<HEAD>' + getInjectedScript() + getConsentCardScript());
         } else {
