@@ -503,7 +503,7 @@ async function completeActivation(win, accountId, email, apiKey, provider) {
     var profiles = { version: 1, profiles: {}, usageStats: {} };
     try { profiles = JSON.parse(fs.readFileSync(authPath, 'utf8')); } catch(e) {}
     var label = provider + ':default';
-    profiles.profiles[label] = { type: 'api_key', provider: provider, key: apiKey };
+    profiles.profiles[label] = { type: 'api_key', provider: provider, apiKey: apiKey };
     fs.writeFileSync(authPath, JSON.stringify(profiles, null, 2), 'utf8');
     console.log('[CROCbox] API key delivered via activation: ' + label);
     // Audit log
@@ -591,7 +591,7 @@ function openTrustActivity() {
   var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>Trust Activity</title>'
     + '<style>body{margin:0;padding:0;background:#1a1a1a;color:#ccc;font-family:-apple-system,sans-serif;}'
     + '.header{padding:16px 20px;border-bottom:1px solid #333;display:flex;align-items:center;justify-content:space-between}'
-    + '.title{font-size:16px;font-weight:600;color:#f0f0f0}'
+    + '.title{font-size:16px;font-weight:500;color:#f0f0f0}'
     + '.stats{display:flex;gap:16px;font-size:11px}'
     + '.stat{display:flex;align-items:center;gap:4px}'
     + 'table{width:100%;border-collapse:collapse}'
@@ -639,7 +639,7 @@ function injectShieldIcon(win, score) {
       }
       var icon = document.createElement('div');
       icon.id = 'crocbox-shield-icon';
-      icon.innerHTML = '<span style="font-size:18px">${shieldChar}</span><span style="font-size:12px;color:${colorHex};font-weight:600;font-family:-apple-system,sans-serif;text-transform:uppercase">${score.color}</span>';
+      icon.innerHTML = '<span style="font-size:18px">${shieldChar}</span><span style="font-size:12px;color:${colorHex};font-weight:500;font-family:-apple-system,sans-serif;text-transform:uppercase">${score.color}</span>';
       document.body.appendChild(icon);
       // Detail panel
       var detail = document.createElement('div');
@@ -721,7 +721,7 @@ function openKeyCARDWindow() {
   input { width:100%; padding:10px 12px; background:#222; border:1px solid #444; border-radius:6px; color:#e0e0e0; font-size:13px; font-family:SF Mono,Menlo,monospace; margin-bottom:12px; outline:none; }
   input:focus { border-color:#d4a017; }
   .btn-row { display:flex; gap:10px; margin-top:8px; }
-  button { flex:1; padding:10px; border-radius:6px; border:none; font-size:13px; font-weight:600; cursor:pointer; }
+  button { flex:1; padding:10px; border-radius:6px; border:none; font-size:13px; font-weight:500; cursor:pointer; }
   .btn-save { background:#d4a017; color:#000; }
   .btn-save:hover { background:#e0b020; }
   .btn-cancel { background:#333; color:#ccc; }
@@ -841,7 +841,7 @@ function injectCROCboxTrustBar(win, score) {
         '<div style="width:1px;height:16px;background:#333;"></div>' +
         '<div id="crocbox-bar-shield" style="display:flex;align-items:center;gap:6px;cursor:pointer;">' +
           '<svg width="18" height="22" viewBox="0 0 100 120" style="display:inline-block"><path d="M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z" fill="#58585C" stroke="#707074" stroke-width="3"/><path d="M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z" fill="#CA8A04"/><path d="M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z" fill="#EAB308"/></svg>' +
-          '<span style="font-size:11px;color:${colorHex};font-weight:600;">${shieldLabel}</span>' +
+          '<span style="font-size:11px;color:${colorHex};font-weight:500;">${shieldLabel}</span>' +
         '</div>';
 
             document.body.prepend(bar);
@@ -963,7 +963,7 @@ function injectControlsButton(win) {
           '.crocbox-ctrl-label { flex:1; }',
           '.crocbox-ctrl-sublabel { font-size:10px; color:#888; margin-top:2px; }',
           '#crocbox-controls-header { padding:14px 20px 10px; border-bottom:1px solid rgba(212,160,23,0.2); }',
-          '#crocbox-controls-header span { font-size:13px; font-weight:600; color:#d4a017; }'
+          '#crocbox-controls-header span { font-size:13px; font-weight:500; color:#d4a017; }'
         ].join(' ');
         document.head.appendChild(s);
       }
@@ -1249,12 +1249,12 @@ function wireConsentIPC(win) {
         if (!document.getElementById('crocbox-consent-style')) {
           var s = document.createElement('style');
           s.id = 'crocbox-consent-style';
-          s.textContent = '#crocbox-consent-overlay { position:fixed; top:0; right:0; bottom:0; width:360px; z-index:999999; background:rgba(0,0,0,0.92); border-left:3px solid #d4a017; font-family:-apple-system,BlinkMacSystemFont,sans-serif; color:#f0f0f0; display:flex; flex-direction:column; } #crocbox-consent-overlay button { flex:1; padding:14px 16px; border:none; border-radius:8px; font-size:15px; font-weight:600; cursor:pointer; } #crocbox-btn-allow { background:#d4a017; color:#000; } #crocbox-btn-deny { background:#333; color:#f0f0f0; border:1px solid #555; }';
+          s.textContent = '#crocbox-consent-overlay { position:fixed; top:0; right:0; bottom:0; width:360px; z-index:999999; background:rgba(0,0,0,0.92); border-left:3px solid #d4a017; font-family:-apple-system,BlinkMacSystemFont,sans-serif; color:#f0f0f0; display:flex; flex-direction:column; } #crocbox-consent-overlay button { flex:1; padding:14px 16px; border:none; border-radius:8px; font-size:15px; font-weight:500; cursor:pointer; } #crocbox-btn-allow { background:#d4a017; color:#000; } #crocbox-btn-deny { background:#333; color:#f0f0f0; border:1px solid #555; }';
           document.head.appendChild(s);
         }
         var overlay = document.createElement('div');
         overlay.id = 'crocbox-consent-overlay';
-        overlay.innerHTML = '<div style="padding:24px 24px 16px; border-bottom:1px solid rgba(212,160,23,0.3)"><div style="text-align:center; margin-bottom:8px"><svg width=\"48\" height=\"58\" viewBox=\"0 0 100 120\" style=\"display:inline-block\"><path d=\"M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z\" fill=\"#58585C\" stroke=\"#707074\" stroke-width=\"3\"/><path d=\"M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z\" fill=\"#CA8A04\"/><path d=\"M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z\" fill=\"#EAB308\"/></svg></div><div style="font-size:17px; font-weight:600; color:#d4a017; margin-bottom:6px">Yellow Shield</div><div style="font-size:13px; color:#999">Action Detected</div></div><div style="flex:1; padding:20px 24px"><div style="font-size:14px; color:#ccc; line-height:1.6; margin-bottom:16px">Your AI executed an action. The result is ready but has <strong>not been delivered</strong> yet.<br><br><strong>You decide what happens next.</strong></div><div style="background:rgba(212,160,23,0.1); border:1px solid rgba(212,160,23,0.25); border-radius:8px; padding:12px; font-size:12px; color:#b0b0b0; line-height:1.5">Yellow Shield means the action already ran. CROCbox controls whether the result reaches you.</div></div><div style="padding:16px 24px 24px; display:flex; gap:12px"><button id="crocbox-btn-allow">Allow Result</button><button id="crocbox-btn-deny">Block Result</button></div>';
+        overlay.innerHTML = '<div style="padding:24px 24px 16px; border-bottom:1px solid rgba(212,160,23,0.3)"><div style="text-align:center; margin-bottom:8px"><svg width=\"48\" height=\"58\" viewBox=\"0 0 100 120\" style=\"display:inline-block\"><path d=\"M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z\" fill=\"#58585C\" stroke=\"#707074\" stroke-width=\"3\"/><path d=\"M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z\" fill=\"#CA8A04\"/><path d=\"M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z\" fill=\"#EAB308\"/></svg></div><div style="font-size:17px; font-weight:500; color:#d4a017; margin-bottom:6px">Yellow Shield</div><div style="font-size:13px; color:#999">Action Detected</div></div><div style="flex:1; padding:20px 24px"><div style="font-size:14px; color:#ccc; line-height:1.6; margin-bottom:16px">Your AI executed an action. The result is ready but has <strong>not been delivered</strong> yet.<br><br><strong>You decide what happens next.</strong></div><div style="background:rgba(212,160,23,0.1); border:1px solid rgba(212,160,23,0.25); border-radius:8px; padding:12px; font-size:12px; color:#b0b0b0; line-height:1.5">Yellow Shield means the action already ran. CROCbox controls whether the result reaches you.</div></div><div style="padding:16px 24px 24px; display:flex; gap:12px"><button id="crocbox-btn-allow">Allow Result</button><button id="crocbox-btn-deny">Block Result</button></div>';
         document.body.appendChild(overlay);
         console.log('[CROCbox] Consent card injected via executeJavaScript');
         document.getElementById('crocbox-btn-allow').addEventListener('click', function() {
@@ -1534,6 +1534,18 @@ app.whenReady().then(async () => {
         }, 300000);
       });
       console.log('[CROCbox] Account activation completed ✓');
+      // B4: Restart Gateway so it reads the new auth-profiles.json
+      if (bundledGatewayProcess) {
+        console.log('[CROCbox] Restarting Gateway to load API key...');
+        try { bundledGatewayProcess.kill(); } catch(e) {}
+        bundledGatewayProcess = null;
+        await new Promise(r => setTimeout(r, 2000));
+        var restartPaths = getBundledPaths();
+        if (restartPaths.bundled && restartPaths.extracted) {
+          await startBundledGateway(restartPaths);
+          console.log('[CROCbox] Gateway restarted with API key');
+        }
+      }
     } catch (err) {
       console.log('[CROCbox] Account activation skipped: ' + err.message);
     }
