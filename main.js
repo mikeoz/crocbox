@@ -1544,6 +1544,13 @@ app.whenReady().then(async () => {
         if (restartPaths.bundled && restartPaths.extracted) {
           await startBundledGateway(restartPaths);
           console.log('[CROCbox] Gateway restarted with API key');
+          // B4b: Reconnect main process WebSocket to new Gateway
+          try {
+            gatewayConnection = await connectToGateway(gatewayToken);
+            console.log('[CROCbox] WebSocket reconnected after Gateway restart');
+          } catch(reconErr) {
+            console.log('[CROCbox] WebSocket reconnect failed: ' + reconErr.message);
+          }
         }
       }
     } catch (err) {
