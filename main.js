@@ -158,6 +158,14 @@ function ensureOpenClawConfig() {
     console.log('[CROCbox] Generated new Gateway auth token');
   }
   if (!config.gateway.mode) config.gateway.mode = 'local';
+  // Set default model to Sonnet (higher rate limits, lower cost, quality conversation)
+  if (!config.agents) config.agents = {};
+  if (!config.agents.defaults) config.agents.defaults = {};
+  if (!config.agents.defaults.model) config.agents.defaults.model = {};
+  if (!config.agents.defaults.model.primary) {
+    config.agents.defaults.model.primary = 'anthropic/claude-sonnet-4-20250514';
+    console.log('[CROCbox] Default model set to Claude Sonnet 4');
+  }
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
   console.log('[CROCbox] OpenClaw config ensured: ' + configPath);
 
@@ -387,6 +395,11 @@ function seedBigCROCWorkspace() {
 // ── Trust Network Indicator ─────────────────────────────────────
 function injectTrustNetworkIndicator(win, status) {
   if (!win || win.isDestroyed()) return;
+  // If trust bar is active, skip — trust bar shows network status
+  win.webContents.executeJavaScript('!!document.getElementById("crocbox-trust-bar")').then(function(hasBar) {
+    if (hasBar) { console.log('[CROCbox] Trust bar active — skipping legacy indicator'); return; }
+  }).catch(function() {});
+  // Legacy indicator for when trust bar hasn't loaded yet
   var color = status === 'enrolled' ? '#4CAF50' : status === 'local' ? '#d4a017' : '#888';
   var label = status === 'enrolled' ? 'Trust Network' : status === 'local' ? 'Local Mode' : 'Not Connected';
   var dot = status === 'enrolled' ? '\u2705' : status === 'local' ? '\uD83D\uDFE1' : '\u26AA';
@@ -397,10 +410,12 @@ function injectTrustNetworkIndicator(win, status) {
       if (old) old.remove();
       var el = document.createElement('div');
       el.id = 'crocbox-trust-indicator';
-      el.style.cssText = 'position:fixed;top:8px;right:180px;z-index:999989;padding:3px 10px;border-radius:6px;background:rgba(0,0,0,0.6);border:1px solid ${color}40;display:flex;align-items:center;gap:5px;font-family:-apple-system,sans-serif;font-size:10px;color:${color};';
+      el.style.cssText = 'position:fixed;top:8px;right:420px;z-index:999989;padding:3px 10px;border-radius:6px;background:rgba(0,0,0,0.6);border:1px solid ${color}40;display:flex;align-items:center;gap:5px;font-family:-apple-system,sans-serif;font-size:10px;color:${color};';
       el.innerHTML = '<span>${dot}</span><span>${label}</span>';
       if ('${status}' === 'local') { el.style.cursor = 'pointer'; el.title = 'Click to activate your CROCbox'; el.addEventListener('click', function() { if (window.crocbox && window.crocbox.activate) window.crocbox.activate(); }); }
       document.body.appendChild(el);
+      // Hide if trust bar is active (trust bar shows this info)
+      if (document.getElementById('crocbox-trust-bar')) { el.style.display = 'none'; }
       console.log('[CROCbox] Trust Network indicator: ${status}');
     })();
   `).catch(function() {});
@@ -606,12 +621,12 @@ function injectShieldIcon(win, score) {
       if (!document.getElementById('crocbox-shield-style')) {
         var s = document.createElement('style');
         s.id = 'crocbox-shield-style';
-        s.textContent = '#crocbox-shield-icon { position:fixed; top:8px; right:12px; z-index:999990; cursor:pointer; padding:4px 12px; border-radius:8px; background:rgba(0,0,0,0.7); border:1px solid ${colorHex}40; display:flex; align-items:center; gap:6px; transition:all 0.2s; } #crocbox-shield-icon:hover { background:rgba(0,0,0,0.9); border-color:${colorHex}; } #crocbox-shield-detail { position:fixed; top:44px; right:12px; z-index:999991; width:340px; background:rgba(0,0,0,0.95); border:1px solid ${colorHex}40; border-radius:12px; display:none; } #crocbox-shield-detail.visible { display:block; }';
+        s.textContent = '#crocbox-shield-icon { position:fixed; top:8px; right:170px; z-index:999990; cursor:pointer; padding:4px 12px; border-radius:8px; background:rgba(0,0,0,0.7); border:1px solid ${colorHex}40; display:flex; align-items:center; gap:6px; transition:all 0.2s; } #crocbox-shield-icon:hover { background:rgba(0,0,0,0.9); border-color:${colorHex}; } #crocbox-shield-detail { position:fixed; top:44px; right:170px; z-index:999991; width:340px; background:rgba(0,0,0,0.95); border:1px solid ${colorHex}40; border-radius:12px; display:none; } #crocbox-shield-detail.visible { display:block; }';
         document.head.appendChild(s);
       }
       var icon = document.createElement('div');
       icon.id = 'crocbox-shield-icon';
-      icon.innerHTML = '<span style="font-size:18px">${shieldChar}</span><span style="font-size:11px;color:${colorHex};font-weight:600;font-family:-apple-system,sans-serif;text-transform:uppercase">${score.color} Shield</span>';
+      icon.innerHTML = '<span style="font-size:18px">${shieldChar}</span><span style="font-size:12px;color:${colorHex};font-weight:600;font-family:-apple-system,sans-serif;text-transform:uppercase">${score.color}</span>';
       document.body.appendChild(icon);
       // Detail panel
       var detail = document.createElement('div');
@@ -769,6 +784,149 @@ function openKeyCARDWindow() {
   });
 }
 
+// ── CROCbox Trust Bar (unified top bar) ─────────────────────────
+function injectCROCboxTrustBar(win, score) {
+  if (!win || win.isDestroyed()) return;
+  var colorHex = score && score.color === 'green' ? '#4CAF50' :
+                 score && score.color === 'yellow' ? '#d4a017' : '#e53935';
+  var shieldLabel = score ? score.color.toUpperCase() : 'UNKNOWN';
+  
+  win.webContents.executeJavaScript(`
+    (function() {
+      // Remove existing trust bar if present
+      var old = document.getElementById('crocbox-trust-bar');
+      if (old) old.remove();
+
+      // Hide the individually positioned elements (we replace them)
+      var si = document.getElementById('crocbox-shield-icon');
+      if (si) si.style.display = 'none';
+      var ti = document.getElementById('crocbox-trust-indicator');
+      if (ti) ti.style.display = 'none';
+      var cb = document.getElementById('crocbox-controls-btn');
+      if (cb) cb.style.display = 'none';
+
+      // Create the trust bar
+      var bar = document.createElement('div');
+      bar.id = 'crocbox-trust-bar';
+      bar.style.cssText = 'position:fixed; top:0; left:0; right:0; height:38px; z-index:999999; background:#111; border-bottom:1px solid #333; display:flex; align-items:center; justify-content:center; gap:24px; position:relative; font-family:-apple-system,sans-serif; padding:0 16px;';
+
+      // Trust Network status
+      var veStatus = document.getElementById('crocbox-trust-indicator');
+      var veLabel = veStatus ? veStatus.textContent.trim() : 'Local Mode';
+      var veColor = veLabel.includes('Trust Network') ? '#4CAF50' : '#d4a017';
+
+      bar.innerHTML = 
+        '<div style="display:flex;align-items:center;gap:6px;cursor:default;">' +
+          '<span style="font-size:12px;color:' + veColor + ';">\u25CF</span>' +
+          '<span style="font-size:12px;color:' + veColor + ';font-weight:500;">' + veLabel + '</span>' +
+        '</div>' +
+        '<div style="width:1px;height:16px;background:#333;"></div>' +
+        '<div id="crocbox-bar-controls" style="display:flex;align-items:center;gap:5px;cursor:pointer;">' +
+          '<span style="font-size:12px;">\u2699\uFE0F</span>' +
+          '<span style="font-size:12px;color:#ccc;font-weight:500;">Controls</span>' +
+        '</div>' +
+        '<div style="width:1px;height:16px;background:#333;"></div>' +
+        '<div id="crocbox-bar-shield" style="display:flex;align-items:center;gap:6px;cursor:pointer;">' +
+          '<svg width="18" height="22" viewBox="0 0 100 120" style="display:inline-block"><path d="M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z" fill="#58585C" stroke="#707074" stroke-width="3"/><path d="M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z" fill="#CA8A04"/><path d="M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z" fill="#EAB308"/></svg>' +
+          '<span style="font-size:11px;color:${colorHex};font-weight:600;">${shieldLabel}</span>' +
+        '</div>';
+
+            document.body.prepend(bar);
+
+      // Push OpenClaw content down
+      document.body.style.marginTop = '38px';
+
+      // Wire Controls click to toggle the existing controls panel
+      var barCtrl = document.getElementById('crocbox-bar-controls');
+      if (barCtrl) {
+        barCtrl.addEventListener('click', function(ev) {
+          ev.stopPropagation();
+          var panel = document.getElementById('crocbox-controls-panel');
+          if (panel) {
+            // Reposition panel below trust bar
+            panel.style.top = '42px';
+            panel.style.right = '50%';
+            panel.style.transform = 'translateX(50%)';
+            panel.classList.toggle('visible');
+            // Close shield detail if open
+            var sd = document.getElementById('crocbox-shield-detail');
+            if (sd) sd.classList.remove('visible');
+          } else if (window.crocbox && window.crocbox.openKeyCARD) {
+            // Fallback: open keyCARD directly
+            window.crocbox.openKeyCARD();
+          }
+        });
+      }
+
+      // Wire Shield click to toggle the existing shield detail panel
+      var barShield = document.getElementById('crocbox-bar-shield');
+      if (barShield) {
+        barShield.addEventListener('click', function(ev) {
+          ev.stopPropagation();
+          var detail = document.getElementById('crocbox-shield-detail');
+          if (detail) {
+            // Reposition detail below trust bar
+            detail.style.top = '36px';
+            detail.style.right = '50%';
+            detail.style.transform = 'translateX(50%)';
+            if (detail.classList.contains('visible')) {
+              detail.classList.remove('visible');
+            } else {
+              if (window.crocbox && window.crocbox.getShieldDetail) {
+                window.crocbox.getShieldDetail().then(function(html) {
+                  detail.innerHTML = html + '<div style="padding:8px 20px 16px;text-align:center;border-top:1px solid #333"><a id="crocbox-activity-link2" href="#" style="color:#d4a017;font-size:11px;text-decoration:none;cursor:pointer">View Trust Activity</a><span style="margin:0 8px;color:#444">\u00B7</span><a id="crocbox-detail-close2" href="#" style="color:#888;font-size:11px;text-decoration:none;cursor:pointer">Close</a></div>';
+                  setTimeout(function(){ 
+                    var al = document.getElementById('crocbox-activity-link2'); 
+                    if(al) al.addEventListener('click', function(e){ e.preventDefault(); if(window.crocbox&&window.crocbox.openTrustActivity) window.crocbox.openTrustActivity(); }); 
+                    var cl = document.getElementById('crocbox-detail-close2'); 
+                    if(cl) cl.addEventListener('click', function(e){ e.preventDefault(); detail.classList.remove('visible'); }); 
+                  }, 100);
+                  detail.classList.add('visible');
+                });
+              }
+            }
+            // Close controls panel if open
+            var cp = document.getElementById('crocbox-controls-panel');
+            if (cp) cp.classList.remove('visible');
+          }
+        });
+      }
+
+      // Close panels when clicking outside
+      document.addEventListener('click', function(ev) {
+        var panel = document.getElementById('crocbox-controls-panel');
+        var detail = document.getElementById('crocbox-shield-detail');
+        var barC = document.getElementById('crocbox-bar-controls');
+        var barS = document.getElementById('crocbox-bar-shield');
+        if (panel && panel.classList.contains('visible') && !panel.contains(ev.target) && (!barC || !barC.contains(ev.target))) {
+          panel.classList.remove('visible');
+        }
+        if (detail && detail.classList.contains('visible') && !detail.contains(ev.target) && (!barS || !barS.contains(ev.target))) {
+          detail.classList.remove('visible');
+        }
+      });
+
+      console.log('[CROCbox] Trust bar injected');
+
+      // Re-inject trust bar if SPA destroys it
+      var barObserver = new MutationObserver(function() {
+        if (!document.getElementById('crocbox-trust-bar')) {
+          console.log('[CROCbox] Trust bar destroyed by SPA — re-injecting');
+          setTimeout(function() {
+            if (!document.getElementById('crocbox-trust-bar')) {
+              document.body.prepend(bar);
+              document.body.style.marginTop = '38px';
+            }
+          }, 200);
+        }
+      });
+      barObserver.observe(document.body, { childList: true, subtree: false });
+    })();
+  `).catch(function(err) {
+    console.log('[CROCbox] Trust bar injection failed: ' + err.message);
+  });
+}
+
 // ── Trust Wrapper: Controls Button ──────────────────────────────
 function injectControlsButton(win) {
   if (!win || win.isDestroyed()) return;
@@ -781,9 +939,9 @@ function injectControlsButton(win) {
         var s = document.createElement('style');
         s.id = 'crocbox-controls-style';
         s.textContent = [
-          '#crocbox-controls-btn { position:fixed; top:8px; right:90px; z-index:999990; cursor:pointer; padding:4px 12px; border-radius:8px; background:rgba(0,0,0,0.7); border:1px solid rgba(255,255,255,0.15); display:flex; align-items:center; gap:5px; transition:all 0.2s; font-family:-apple-system,sans-serif; }',
+          '#crocbox-controls-btn { position:fixed; top:8px; right:300px; z-index:999990; cursor:pointer; padding:4px 12px; border-radius:8px; background:rgba(0,0,0,0.7); border:1px solid rgba(255,255,255,0.15); display:flex; align-items:center; gap:5px; transition:all 0.2s; font-family:-apple-system,sans-serif; }',
           '#crocbox-controls-btn:hover { background:rgba(0,0,0,0.9); border-color:rgba(255,255,255,0.4); }',
-          '#crocbox-controls-panel { position:fixed; top:44px; right:90px; z-index:999991; width:280px; background:rgba(0,0,0,0.95); border:1px solid rgba(255,255,255,0.15); border-radius:12px; display:none; font-family:-apple-system,sans-serif; overflow:hidden; }',
+          '#crocbox-controls-panel { position:fixed; top:44px; right:300px; z-index:999991; width:280px; background:rgba(0,0,0,0.95); border:1px solid rgba(255,255,255,0.15); border-radius:12px; display:none; font-family:-apple-system,sans-serif; overflow:hidden; }',
           '#crocbox-controls-panel.visible { display:block; }',
           '.crocbox-ctrl-item { padding:12px 20px; cursor:pointer; display:flex; align-items:center; gap:10px; color:#ccc; font-size:13px; border-bottom:1px solid rgba(255,255,255,0.06); transition:background 0.15s; }',
           '.crocbox-ctrl-item:hover { background:rgba(255,255,255,0.06); color:#fff; }',
@@ -870,6 +1028,7 @@ function computeAndInjectShield(win, catalogPayload) {
   console.log('[CROCbox]   Catalog Hash: ' + currentShieldScore.catalogHash.substring(0, 16) + '...');
   injectShieldIcon(win, currentShieldScore);
   injectControlsButton(win);
+  injectCROCboxTrustBar(win, currentShieldScore);
 }
 
 // ── Welcome Screen (first launch only) ─────────────────────────
@@ -919,7 +1078,7 @@ function showWelcomeScreen() {
   <div class="subtitle">CROCbox wraps your AI agent in a trust layer</div>
   <div class="steps">
     <div class="step"><div class="step-num">1</div>
-      <div class="step-text"><strong>Your AI acts.</strong> It can search the web, run commands, read files \u2014 real actions on your computer.</div></div>
+      <div class="step-text"><strong>Your AI acts.</strong> It can search the web, run commands, read files &#8212; real actions on your computer.</div></div>
     <div class="step"><div class="step-num">2</div>
       <div class="step-text"><strong>CROCbox catches it.</strong> Every action is detected and held. The Yellow Shield appears.</div></div>
     <div class="step"><div class="step-num">3</div>
@@ -929,10 +1088,9 @@ function showWelcomeScreen() {
 <div class="btn-row"><button class="btn" onclick="window.close()">See the Magic</button></div>
 <div class="footer">My data + Your AI + My control = Living Intelligence</div>
 </body></html>`;
-    // Write to temp file to avoid data-URL encoding issues with SVG
-    var welcomeTmp = path.join(require('os').tmpdir(), 'crocbox-welcome.html');
-    fs.writeFileSync(welcomeTmp, welcomeHTML, 'utf8');
-    welcomeWin.loadFile(welcomeTmp);
+    // Load welcome HTML via base64 data URI (avoids temp file encoding issues)
+    var welcomeBase64 = Buffer.from(welcomeHTML, 'utf8').toString('base64');
+    welcomeWin.loadURL('data:text/html;base64,' + welcomeBase64);
     welcomeWin.on('closed', () => {
       resolve();
     });
