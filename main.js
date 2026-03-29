@@ -273,6 +273,61 @@ function detectOpenClaw() {
   } catch (e) {
     return false;
   }
+
+// ── Classify Installation Scenario ─────────────────────────────
+// Returns: 'NHB' | 'EXISTING_OC' | 'UPGRADE'
+// NHB: Clean machine, no OpenClaw. Full first-launch flow.
+// EXISTING_OC: User has OpenClaw installed and configured. Non-invasive wrap.
+// UPGRADE: User has a prior CROCbox installation. Update CROCbox files only.
+function classifyInstallation() {
+  var home = process.env.HOME || '/tmp';
+  var ocConfigPath = require('path').join(home, '.openclaw', 'openclaw.json');
+  var authProfilesPath = require('path').join(home, '.openclaw', 'agents', 'main', 'agent', 'auth-profiles.json');
+  var crocboxLaunched = require('path').join(home, '.crocbox', 'launched');
+
+  // Check 1: Has CROCbox been launched before?
+  if (fs.existsSync(crocboxLaunched)) {
+    console.log('[CROCbox] Classification: UPGRADE (prior CROCbox installation detected)');
+    return 'UPGRADE';
+  }
+
+  // Check 2: Is OpenClaw installed and fully configured?
+  var hasSystemOC = false;
+  try {
+    var result = require('child_process').execSync('which openclaw 2>/dev/null', { encoding: 'utf8' }).trim();
+    hasSystemOC = !!result;
+  } catch (e) {}
+
+  var hasConfig = false;
+  try {
+    var config = JSON.parse(fs.readFileSync(ocConfigPath, 'utf8'));
+    hasConfig = !!(config.gateway && config.gateway.auth && config.gateway.auth.token);
+  } catch (e) {}
+
+  var hasApiKey = false;
+  try {
+    var profiles = JSON.parse(fs.readFileSync(authProfilesPath, 'utf8'));
+    if (profiles.profiles) {
+      hasApiKey = Object.keys(profiles.profiles).some(function(k) {
+        return profiles.profiles[k] && (profiles.profiles[k].apiKey || profiles.profiles[k].key);
+      });
+    }
+  } catch (e) {}
+
+  if (hasSystemOC && hasConfig && hasApiKey) {
+    console.log('[CROCbox] Classification: EXISTING_OC');
+    console.log('[CROCbox]   System OpenClaw: ' + (hasSystemOC ? 'YES' : 'NO'));
+    console.log('[CROCbox]   Config with token: ' + (hasConfig ? 'YES' : 'NO'));
+    console.log('[CROCbox]   API key configured: ' + (hasApiKey ? 'YES' : 'NO'));
+    return 'EXISTING_OC';
+  }
+
+  console.log('[CROCbox] Classification: NHB (clean machine)');
+  console.log('[CROCbox]   System OpenClaw: ' + (hasSystemOC ? 'YES' : 'NO'));
+  console.log('[CROCbox]   Config with token: ' + (hasConfig ? 'YES' : 'NO'));
+  console.log('[CROCbox]   API key configured: ' + (hasApiKey ? 'YES' : 'NO'));
+  return 'NHB';
+}
 }
 // ── Auto-start Gateway if not running ──────────────────────────
 function autoStartGateway() {
@@ -391,6 +446,86 @@ function seedBigCROCWorkspace() {
   fs.writeFileSync(require("path").join(wsPath, "USER.md"), BIGCROC_WS.user, "utf8");
   fs.writeFileSync(require("path").join(wsPath, "AGENTS.md"), BIGCROC_WS.agents, "utf8");
   console.log("[CROCbox] BigCROC workspace seeded");
+}
+// ── BigCROC Isolated Workspace Seeding (EXISTING_OC + UPGRADE) ──
+// Writes to ~/.openclaw/agents/bigcroc/ — NEVER to workspace/ or agents/main/
+// Satisfies INV-EU-3: BigCROC files isolated from user's agent files
+function seedBigCROCWorkspaceIsolated() {
+  var bigcrocPath = require("path").join(require("os").homedir(), ".openclaw", "agents", "bigcroc", "agent");
+  try {
+    var cur = fs.readFileSync(require("path").join(bigcrocPath, "SOUL.md"), "utf8");
+    if (cur.includes("BigCROC")) { console.log("[CROCbox] BigCROC isolated workspace already seeded"); return; }
+  } catch(e) {}
+  try { fs.mkdirSync(bigcrocPath, { recursive: true }); } catch(e) {}
+  fs.writeFileSync(require("path").join(bigcrocPath, "SOUL.md"), BIGCROC_WS.soul, "utf8");
+  fs.writeFileSync(require("path").join(bigcrocPath, "IDENTITY.md"), BIGCROC_WS.identity, "utf8");
+  fs.writeFileSync(require("path").join(bigcrocPath, "USER.md"), BIGCROC_WS.user, "utf8");
+  fs.writeFileSync(require("path").join(bigcrocPath, "AGENTS.md"), BIGCROC_WS.agents, "utf8");
+  console.log("[CROCbox] BigCROC isolated workspace seeded at: " + bigcrocPath);
+}
+// ── Existing User Welcome Screen ────────────────────────────────
+// Different from NHB welcome: no "setup" language, emphasizes non-invasive wrap
+function showExistingUserWelcome() {
+  return new Promise(function(resolve) {
+    var { BrowserWindow } = require('electron');
+    var welcomeWin = new BrowserWindow({
+      width: 640, height: 520,
+      resizable: false,
+      titleBarStyle: 'hiddenInset',
+      backgroundColor: '#1a1a1a',
+      webPreferences: { nodeIntegration: false, contextIsolation: true }
+    });
+    var html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  body { margin:0; padding:40px; background:#1a1a1a; color:#e0e0e0;
+    font-family:-apple-system,system-ui,Helvetica,Arial,sans-serif;
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    height:calc(100vh - 80px); text-align:center; }
+  .shield { width:80px; height:80px; margin-bottom:24px; }
+  h1 { font-size:24px; font-weight:500; margin:0 0 12px 0; color:#d4a017; }
+  .subtitle { font-size:15px; color:#aaa; margin-bottom:28px; line-height:1.5; }
+  .features { text-align:left; max-width:400px; margin-bottom:32px; }
+  .feature { display:flex; align-items:flex-start; gap:12px; margin-bottom:14px; }
+  .feature-icon { font-size:18px; flex-shrink:0; margin-top:1px; }
+  .feature-text { font-size:13px; color:#ccc; line-height:1.4; }
+  .feature-text strong { color:#e0e0e0; font-weight:500; }
+  .note { font-size:11px; color:#888; margin-bottom:24px; max-width:380px; line-height:1.4; }
+  button { padding:12px 36px; font-size:15px; font-weight:500;
+    font-family:-apple-system,system-ui,Helvetica,Arial,sans-serif;
+    background:#d4a017; color:#1a1a1a; border:none; border-radius:8px;
+    cursor:pointer; transition:background 0.2s; }
+  button:hover { background:#e0b030; }
+</style></head><body>
+  <svg class="shield" viewBox="0 0 100 120" xmlns="http://www.w3.org/2000/svg">
+    <path d="M50 5 L90 25 L90 60 C90 85 70 105 50 115 C30 105 10 85 10 60 L10 25 Z"
+      fill="#d4a01730" stroke="#d4a017" stroke-width="3"/>
+    <text x="50" y="72" text-anchor="middle" font-size="36" fill="#d4a017"
+      font-family="-apple-system,system-ui,Helvetica,Arial,sans-serif"
+      font-weight="500">Y</text>
+  </svg>
+  <h1>CROCbox Detected Your OpenClaw</h1>
+  <p class="subtitle">Adding the Agent Trust Layer to your existing installation.<br>Nothing will be changed.</p>
+  <div class="features">
+    <div class="feature">
+      <span class="feature-icon">&#x1F6E1;</span>
+      <span class="feature-text"><strong>Yellow Shield consent</strong> fires on every tool your AI uses. You decide what happens.</span>
+    </div>
+    <div class="feature">
+      <span class="feature-icon">&#x1F4CB;</span>
+      <span class="feature-text"><strong>Tamper-evident audit log</strong> records every decision with a SHA-256 hash chain.</span>
+    </div>
+    <div class="feature">
+      <span class="feature-icon">&#x2705;</span>
+      <span class="feature-text"><strong>Your config is untouched.</strong> Your model, API keys, workspace, and skills stay exactly as they are.</span>
+    </div>
+  </div>
+  <p class="note">CROCbox adds a trust layer between you and your AI. It does not modify OpenClaw. To remove it, just delete CROCbox.app.</p>
+  <button onclick="window.close()">See the Trust Layer</button>
+</body></html>`;
+    welcomeWin.loadURL('data:text/html;base64,' + Buffer.from(html).toString('base64'));
+    welcomeWin.on('closed', function() { resolve(); });
+  });
 }
 // ── Trust Network Indicator ─────────────────────────────────────
 function injectTrustNetworkIndicator(win, status) {
@@ -1356,6 +1491,9 @@ app.whenReady().then(async () => {
 
   // Step 0: Detect OpenClaw — system or bundled
   var useSystemOC = detectOpenClaw();
+  // Step 0.5: Classify installation scenario (INV-DK-1)
+  var installScenario = classifyInstallation();
+  console.log('[CROCbox] Scenario: ' + installScenario);
   var bundled = getBundledPaths();
 
   if (!useSystemOC && !bundled.bundled) {
@@ -1373,6 +1511,12 @@ app.whenReady().then(async () => {
 
   if (!useSystemOC && bundled.bundled) {
     console.log('[CROCbox] System OpenClaw not found — using bundled copy');
+    // EXISTING_OC should never reach here (useSystemOC would be true)
+    // But guard anyway for safety (INV-EU-6)
+    if (installScenario === 'EXISTING_OC') {
+      console.error('[CROCbox] ERROR: EXISTING_OC but no system OpenClaw — falling back to NHB');
+      installScenario = 'NHB';
+    }
     // Extract archive if needed (first launch from .app)
     if (!bundled.extracted && bundled.archivePath) {
       console.log('[CROCbox] First launch — extracting bundled OpenClaw...');
@@ -1393,12 +1537,24 @@ app.whenReady().then(async () => {
     }
     ensureOpenClawConfig();
   }
-  console.log('[CROCbox] OpenClaw: ' + (useSystemOC ? 'system' : 'bundled') + ' ✓');
+  // EXISTING_OC/UPGRADE: Read config without writing (INV-EU-1, INV-EU-4)
+  if (installScenario === 'EXISTING_OC' || installScenario === 'UPGRADE') {
+    console.log('[CROCbox] Existing installation — reading config (read-only mode)');
+    var ocConfigPath = require('path').join(process.env.HOME || '/tmp', '.openclaw', 'openclaw.json');
+    try {
+      var existingConfig = JSON.parse(fs.readFileSync(ocConfigPath, 'utf8'));
+      console.log('[CROCbox]   Gateway token: ' + (existingConfig.gateway?.auth?.token ? 'present \u2713' : 'MISSING'));
+      console.log('[CROCbox]   Model: ' + (existingConfig.agents?.defaults?.model?.primary || 'default') + ' (not modified)');
+    } catch (e) {
+      console.log('[CROCbox]   Could not read existing config: ' + e.message);
+    }
+  }
+  console.log('[CROCbox] OpenClaw: ' + (useSystemOC ? 'system' : 'bundled') + ' \u2713');
 
   // Step 1: Read auth token
   gatewayToken = readGatewayToken();
   if (!gatewayToken) {
-    if (!useSystemOC && bundled.bundled) {
+    if (!useSystemOC && bundled.bundled && installScenario === 'NHB') {
       ensureOpenClawConfig();
       gatewayToken = readGatewayToken();
     }
@@ -1479,11 +1635,27 @@ app.whenReady().then(async () => {
   }
 
   // Step 4.5: Seed BigCROC workspace files
-  seedBigCROCWorkspace();
+  if (installScenario === 'EXISTING_OC') {
+    seedBigCROCWorkspaceIsolated();
+  } else if (installScenario === 'UPGRADE') {
+    // On upgrade, only seed if BigCROC files don't exist yet
+    seedBigCROCWorkspaceIsolated();
+  } else {
+    seedBigCROCWorkspace();
+  }
   // Step 5: First-launch welcome screen (OB-1)
   ensureStateDir();
   ensureTrustMd();
   var firstLaunch = isFirstLaunch();
+  // EXISTING_OC: Never run activation — user has their own API keys (INV-EU-2)
+  if (installScenario === 'EXISTING_OC' && firstLaunch) {
+    console.log('[CROCbox] Existing OpenClaw user — skipping NHB activation');
+    console.log('[CROCbox] Showing Existing User welcome screen...');
+    await showExistingUserWelcome();
+    markLaunched();
+    console.log('[CROCbox] Existing User welcome completed \u2713');
+    firstLaunch = false; // Skip the NHB first-launch block below
+  }
   if (firstLaunch) {
     console.log('[CROCbox] First launch detected — showing welcome screen');
     await showWelcomeScreen();
