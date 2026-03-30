@@ -293,11 +293,17 @@ function classifyInstallation() {
   }
 
   // Check 2: Is OpenClaw installed and fully configured?
+  // D-1: Check both CLI install (which openclaw) and Cask install (/Applications/OpenClaw.app)
   var hasSystemOC = false;
+  var ocInstallType = 'none';
   try {
     var result = require('child_process').execSync('which openclaw 2>/dev/null', { encoding: 'utf8' }).trim();
-    hasSystemOC = !!result;
+    if (result) { hasSystemOC = true; ocInstallType = 'cli'; }
   } catch (e) {}
+  if (!hasSystemOC && fs.existsSync('/Applications/OpenClaw.app')) {
+    hasSystemOC = true;
+    ocInstallType = 'cask';
+  }
 
   var hasConfig = false;
   try {
@@ -317,7 +323,7 @@ function classifyInstallation() {
 
   if (hasSystemOC && hasConfig && hasApiKey) {
     console.log('[CROCbox] Classification: EXISTING_OC');
-    console.log('[CROCbox]   System OpenClaw: ' + (hasSystemOC ? 'YES' : 'NO'));
+    console.log('[CROCbox]   System OpenClaw: ' + (hasSystemOC ? 'YES (' + ocInstallType + ')' : 'NO'));
     console.log('[CROCbox]   Config with token: ' + (hasConfig ? 'YES' : 'NO'));
     console.log('[CROCbox]   API key configured: ' + (hasApiKey ? 'YES' : 'NO'));
     return 'EXISTING_OC';
