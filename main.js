@@ -263,16 +263,20 @@ function checkGatewayRunning() {
 }
 // ── Detect if OpenClaw is installed ────────────────────────────
 function detectOpenClaw() {
+  // Check CLI install first (openclaw-cli via Homebrew)
   try {
     const result = require('child_process').execSync('which openclaw 2>/dev/null', { encoding: 'utf8' }).trim();
     if (result) {
-      console.log('[CROCbox] OpenClaw found at: ' + result);
+      console.log('[CROCbox] OpenClaw found at: ' + result + ' (CLI)');
       return true;
     }
-    return false;
-  } catch (e) {
-    return false;
+  } catch (e) {}
+  // Check Cask install (/Applications/OpenClaw.app)
+  if (fs.existsSync('/Applications/OpenClaw.app')) {
+    console.log('[CROCbox] OpenClaw found at: /Applications/OpenClaw.app (Cask)');
+    return true;
   }
+  return false;
 }
 
 // ── Classify Installation Scenario ─────────────────────────────
