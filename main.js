@@ -273,6 +273,7 @@ function detectOpenClaw() {
   } catch (e) {
     return false;
   }
+}
 
 // ── Classify Installation Scenario ─────────────────────────────
 // Returns: 'NHB' | 'EXISTING_OC' | 'UPGRADE'
@@ -327,7 +328,6 @@ function classifyInstallation() {
   console.log('[CROCbox]   Config with token: ' + (hasConfig ? 'YES' : 'NO'));
   console.log('[CROCbox]   API key configured: ' + (hasApiKey ? 'YES' : 'NO'));
   return 'NHB';
-}
 }
 // ── Auto-start Gateway if not running ──────────────────────────
 function autoStartGateway() {
