@@ -65,6 +65,7 @@ const GATEWAY_PORT = 18789;
 const GATEWAY_WS = `ws://${GATEWAY_HOST}:${GATEWAY_PORT}`;
 // ── State (set by startProxy caller) ───────────────────────────
 let authToken = null;
+let proxyScenario = 'NHB';
 let deviceId = null;
 // ── IPC callback (set by main.js after proxy starts) ───────────
 // main.js calls setConsentIPC(callback) to wire up the bridge.
@@ -419,6 +420,7 @@ function handleHttpRequest(clientReq, clientRes) {
 function startProxy(config) {
   authToken = config.token;
   deviceId = config.deviceId;
+  proxyScenario = config.scenario || 'NHB';
   if (!authToken || !deviceId) {
     return Promise.reject(new Error('startProxy requires token and deviceId'));
   }
@@ -454,12 +456,23 @@ function startProxy(config) {
             console.log(`[ws-proxy] C->G (${connId}): ${label}`);
             // A.8: Rewrite connect request for proxy pass-through
             if (msg.type === 'req' && msg.method === 'connect') {
-              msg.params.auth = { token: authToken };
-              msg.params.client.id = 'openclaw-macos';
-              msg.params.client.mode = 'ui';
-              delete msg.params.device;
-              forwardData = JSON.stringify(msg);
-              console.log(`[ws-proxy] Rewrote connect: openclaw-macos + token auth`);
+              if (proxyScenario === 'EXISTING_OC') {
+                // Existing user: pass through the Control UI's native connect request.
+                // The #token= fragment gives the UI operator-level credentials.
+                // Inject token into auth but preserve client type and device identity.
+                if (!msg.params.auth || !msg.params.auth.token) {
+                  msg.params.auth = { token: authToken };
+                }
+                forwardData = JSON.stringify(msg);
+                console.log(`[ws-proxy] EXISTING_OC: pass-through connect (client=${msg.params.client.id})`);
+              } else {
+                msg.params.auth = { token: authToken };
+                msg.params.client.id = 'openclaw-macos';
+                msg.params.client.mode = 'ui';
+                delete msg.params.device;
+                forwardData = JSON.stringify(msg);
+                console.log(`[ws-proxy] Rewrote connect: openclaw-macos + token auth`);
+              }
             }
           } catch (e) {
             console.log(`[ws-proxy] C->G (${connId}): [unparseable]`);
