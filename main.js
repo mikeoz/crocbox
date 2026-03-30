@@ -22,6 +22,10 @@
  * @see OPN_ENG_v08-Architecture_15MAR26_v1, Section 3.2
  * @see OPN_PM_FullCROC-Mode_16MAR26_v2, Section 5
  */
+// Guard against EPIPE crashes when stdout pipe is closed (e.g., | head)
+process.stdout.on('error', (err) => { if (err.code === 'EPIPE') process.exit(0); });
+process.stderr.on('error', (err) => { if (err.code === 'EPIPE') process.exit(0); });
+
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const { execSync } = require('child_process');
 const WebSocket = require('ws');
@@ -1342,7 +1346,7 @@ function injectFirstPrompt(win) {
   }, 3000); // Wait 3s for UI to fully render
 }
 // ── Create the main application window ─────────────────────────
-function createWindow(gatewayConnection) {
+function createWindow(gatewayConnection, installScenario, gatewayToken) {
   const win = new BrowserWindow({
     width: 1280,
     height: 820,
@@ -1358,8 +1362,14 @@ function createWindow(gatewayConnection) {
       contextIsolation: true
     }
   });
-  console.log('[CROCbox] Loading Control UI from ' + PROXY_URL + ' (via proxy)');
-  win.loadURL(PROXY_URL);
+  var loadUrl = PROXY_URL;
+  if (installScenario === 'EXISTING_OC' && gatewayToken) {
+    loadUrl = PROXY_URL + '/#token=' + gatewayToken;
+    console.log('[CROCbox] Loading Control UI from ' + PROXY_URL + ' with token fragment (existing user)');
+  } else {
+    console.log('[CROCbox] Loading Control UI from ' + PROXY_URL + ' (via proxy)');
+  }
+  win.loadURL(loadUrl);
   win.webContents.on('did-finish-load', () => {
     console.log('[CROCbox] Control UI loaded in BrowserWindow');
     // A.11 DEBUG: Forward renderer console to Terminal
@@ -1506,6 +1516,7 @@ let gatewayConnection = null;
 let gatewayToken = null;
 let proxyServer = null;
 let startupComplete = false; // Prevents premature quit during welcome screen
+let installScenario = null; // Installation scenario: NHB | EXISTING_OC | UPGRADE
 let currentShieldScore = null; // Shield Scoring Engine state
 let rentalSkiLevel = 'beginner'; // Default Rental Ski level
 let veStatus = 'unknown'; // Trust Network status: enrolled, local, error
@@ -1522,7 +1533,7 @@ app.whenReady().then(async () => {
   // Step 0: Detect OpenClaw — system or bundled
   var useSystemOC = detectOpenClaw();
   // Step 0.5: Classify installation scenario (INV-DK-1)
-  var installScenario = classifyInstallation();
+  installScenario = classifyInstallation();
   console.log('[CROCbox] Scenario: ' + installScenario);
   var bundled = getBundledPaths();
 
@@ -1761,7 +1772,7 @@ app.whenReady().then(async () => {
   }
 
   // Step 6: Create the application window
-  mainWindow = createWindow(gatewayConnection);
+  mainWindow = createWindow(gatewayConnection, installScenario, gatewayToken);
   console.log('[CROCbox] Application window created ✓');
 
   // Step 7: Wire Yellow Shield consent IPC (A.11)
@@ -1846,6 +1857,6 @@ app.on('window-all-closed', async () => {
 });
 app.on('activate', () => {
   if (BrowserWindow.getAllWindows().length === 0 && gatewayConnection) {
-    mainWindow = createWindow(gatewayConnection);
+    mainWindow = createWindow(gatewayConnection, installScenario, gatewayToken);
   }
 });

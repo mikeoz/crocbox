@@ -51,6 +51,10 @@
  * @see OPN_ENG_CROC-E2E-Invariants_13MAR26_v2, INV-5
  */
 'use strict';
+// Guard against EPIPE crashes when stdout pipe is closed (e.g., | head)
+process.stdout.on('error', (err) => { if (err.code === 'EPIPE') process.exit(0); });
+process.stderr.on('error', (err) => { if (err.code === 'EPIPE') process.exit(0); });
+
 const WebSocket = require('ws');
 const http = require('http');
 const crypto = require('crypto');
