@@ -1659,7 +1659,7 @@ app.whenReady().then(async () => {
   // Step 4: Start the HTTP+WS Proxy (A.7 + A.8 + A.10-R)
   var deviceId = getCROCboxDeviceId();
   try {
-    proxyServer = await startProxy({ token: gatewayToken, deviceId: deviceId });
+    proxyServer = await startProxy({ token: gatewayToken, deviceId: deviceId, scenario: installScenario });
     console.log('[CROCbox] HTTP+WS proxy started ✓');
     console.log('[CROCbox] DeviceId: ' + deviceId);
   } catch (err) {
