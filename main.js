@@ -343,6 +343,26 @@ function classifyInstallation() {
 function autoStartGateway() {
   return new Promise((resolve) => {
     console.log('[CROCbox] Attempting to auto-start Gateway...');
+    // Check if openclaw CLI is available before trying to spawn
+    var hasCliBinary = false;
+    try {
+      var which = require('child_process').execSync('which openclaw 2>/dev/null', { encoding: 'utf8' }).trim();
+      hasCliBinary = !!which;
+    } catch (e) {}
+    if (!hasCliBinary) {
+      // Cask user — cannot spawn CLI binary. Show friendly message.
+      console.log('[CROCbox] No openclaw CLI found — Cask-only installation');
+      var { dialog } = require('electron');
+      dialog.showMessageBoxSync({
+        type: 'info',
+        title: 'CROCbox — Please Launch OpenClaw',
+        message: 'CROCbox detected your OpenClaw installation, but the Gateway is not running.',
+        detail: 'Please open OpenClaw from your Applications folder first, then relaunch CROCbox. CROCbox will wrap your running OpenClaw in the trust layer without changing anything.',
+        buttons: ['OK']
+      });
+      resolve(false);
+      return;
+    }
     try {
       // Start gateway in background
       const { spawn } = require('child_process');
