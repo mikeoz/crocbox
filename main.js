@@ -35,7 +35,7 @@ const fs = require('fs');
 // ── MITM Proxy Module ──────────────────────────────────────────
 const { startProxy, stopProxy, setConsentIPC, resolveConsent, setGreenShieldActive, PROXY_PORT } = require('./ws-proxy');
 const { computeShieldScore, getShieldDetailHTML, parseCatalog } = require('./shield-score');
-const { startGreenShieldServer, stopGreenShieldServer, GREEN_SHIELD_PORT } = require('./green-shield-gate');
+const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, setConsentCallback, GREEN_SHIELD_PORT } = require('./green-shield-gate');
 const { enroll: veEnroll, verify: veVerify, checkStatus: veCheckStatus } = require('./card_ve_client');
 // ── Configuration ──────────────────────────────────────────────
 const GATEWAY_PORT = 18789;
@@ -1215,7 +1215,12 @@ function computeAndInjectShield(win, catalogPayload) {
   console.log('[CROCbox]   Catalog Hash: ' + currentShieldScore.catalogHash.substring(0, 16) + '...');
   injectShieldIcon(win, currentShieldScore);
   injectControlsButton(win);
-  injectCROCboxTrustBar(win, currentShieldScore);
+  // Trust Bar via IPC (A.12 — replaces executeJavaScript injection)
+  if (win && !win.isDestroyed() && win.webContents) {
+    var veIndicator = veStatus === 'enrolled' ? 'Trust Network' : 'Local Mode';
+    win.webContents.send('crocbox:trust-bar', { score: currentShieldScore, veLabel: veIndicator });
+    console.log('[CROCbox] Trust Bar data sent via IPC (color=' + currentShieldScore.color + ')');
+  }
 }
 
 // ── Welcome Screen (first launch only) ─────────────────────────
@@ -1783,7 +1788,20 @@ app.whenReady().then(async () => {
   // Step 7: Wire Yellow Shield consent IPC (A.11)
   wireConsentIPC(mainWindow);
   // Step 7b: Start Green Shield consent server (CBE — Consent Before Execution)
-  startGreenShieldServer(mainWindow);
+  startGreenShieldServer();
+  setConsentCallback(function(consentData) {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+      console.log('[CROCbox] Green Shield: forwarding consent request to renderer via IPC (tool=' + consentData.toolName + ')');
+      mainWindow.webContents.send('crocbox:green-consent-request', consentData);
+    } else {
+      console.log('[CROCbox] Green Shield: window not available — tool will be blocked (fail-closed)');
+    }
+  });
+  // Handle Green Shield consent decisions from renderer (A.12)
+  ipcMain.handle('crocbox:green-consent-resolve', function(_event, requestId, decision) {
+    console.log('[CROCbox] Green Shield IPC: received decision from renderer — requestId=' + requestId + ' decision=' + decision);
+    return resolveGreenConsent(requestId, decision);
+  });
   setGreenShieldActive(true);
   greenShieldActive = true;
   console.log('[CROCbox] Green Shield consent server started ✓');

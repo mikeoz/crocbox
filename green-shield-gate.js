@@ -33,8 +33,8 @@ const CONSENT_TIMEOUT_MS = 60000; // 60 seconds, same as Yellow Shield
 // Pending consent requests. Key: requestId, Value: { resolve, timer, toolName, params }
 const pendingGreenConsents = new Map();
 
-// Reference to the Electron BrowserWindow (set by main.js)
-let mainWindow = null;
+// Callback to notify main.js of consent requests (set via setConsentCallback)
+let consentCallback = null;
 
 // ── Audit Logger ───────────────────────────────────────────────
 const AUDIT_LOG_PATH = path.join(
@@ -90,79 +90,19 @@ function writeGreenShieldAudit(requestId, toolName, decision, params) {
   }
 }
 
-// ── Consent Card Rendering ─────────────────────────────────────
-function showGreenShieldCard(requestId, toolName, toolParams) {
-  if (!mainWindow || mainWindow.isDestroyed() || !mainWindow.webContents) {
-    console.log('[GreenShield] Window not available — blocking tool (fail-closed)');
-    return;
+// ── Consent Notification (via IPC callback to main.js) ────
+function notifyConsentRequest(requestId, toolName, toolParams) {
+  if (typeof consentCallback === 'function') {
+    consentCallback({ requestId: requestId, toolName: toolName, toolParams: toolParams });
+  } else {
+    console.log('[GreenShield] No consent callback registered — blocking tool (fail-closed)');
   }
-
-  // Build a human-readable description of what the tool wants to do
-  var description = toolName || 'unknown action';
-  var detail = '';
-  if (toolParams && typeof toolParams === 'object') {
-    if (toolParams.command) detail = toolParams.command;
-    else if (toolParams.path || toolParams.filePath) detail = toolParams.path || toolParams.filePath;
-    else if (toolParams.query) detail = toolParams.query;
-    else if (toolParams.url) detail = toolParams.url;
-    else if (toolParams.content) detail = (toolParams.content + '').substring(0, 80);
-    else {
-      var keys = Object.keys(toolParams).slice(0, 3);
-      detail = keys.map(function(k) { return k + ': ' + (toolParams[k] + '').substring(0, 40); }).join(', ');
-    }
-  }
-  // Escape for JS string injection
-  var safeDetail = (detail + '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '');
-  var safeToolName = (toolName + '').replace(/\\/g, '\\\\').replace(/'/g, "\\'");
-
-  var cardJS = `
-    (function() {
-      var requestId = '${requestId}';
-      var old = document.getElementById('crocbox-consent-overlay');
-      if (old) old.remove();
-      if (!document.getElementById('crocbox-green-consent-style')) {
-        var s = document.createElement('style');
-        s.id = 'crocbox-green-consent-style';
-        s.textContent = '#crocbox-consent-overlay { position:fixed; top:0; right:0; bottom:0; width:360px; z-index:999999; background:rgba(0,0,0,0.92); border-left:3px solid #2E7D32; font-family:-apple-system,BlinkMacSystemFont,sans-serif; color:#f0f0f0; display:flex; flex-direction:column; } #crocbox-consent-overlay button { flex:1; padding:14px 16px; border:none; border-radius:8px; font-size:15px; font-weight:500; cursor:pointer; } #crocbox-btn-allow { background:#2E7D32; color:#fff; } #crocbox-btn-deny { background:#333; color:#f0f0f0; border:1px solid #555; }';
-        document.head.appendChild(s);
-      }
-      var overlay = document.createElement('div');
-      overlay.id = 'crocbox-consent-overlay';
-      overlay.innerHTML = '<div style="padding:24px 24px 16px; border-bottom:1px solid rgba(46,125,50,0.3)"><div style="text-align:center; margin-bottom:8px"><svg width="48" height="58" viewBox="0 0 100 120" style="display:inline-block"><path d="M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z" fill="#1B5E20" stroke="#2E7D32" stroke-width="3"/><path d="M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z" fill="#2E7D32"/><path d="M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z" fill="#4CAF50"/></svg></div><div style="font-size:17px; font-weight:500; color:#4CAF50; margin-bottom:6px">Green Shield</div><div style="font-size:13px; color:#999">Action Requested</div></div><div style="flex:1; padding:20px 24px"><div style="font-size:14px; color:#ccc; line-height:1.6; margin-bottom:12px">Your AI wants to perform an action. It has <strong>NOT executed yet</strong>. You decide.</div><div style="background:rgba(46,125,50,0.15); border:1px solid rgba(46,125,50,0.3); border-radius:8px; padding:12px; margin-bottom:12px"><div style="font-size:11px; color:#81C784; text-transform:uppercase; margin-bottom:4px">Tool</div><div style="font-size:14px; color:#fff; font-weight:500">${safeToolName}</div></div>' + ('${safeDetail}' ? '<div style="background:rgba(255,255,255,0.05); border-radius:8px; padding:12px"><div style="font-size:11px; color:#999; text-transform:uppercase; margin-bottom:4px">Detail</div><div style="font-size:13px; color:#ccc; word-break:break-all">${safeDetail}</div></div>' : '') + '</div><div style="padding:16px 24px 24px; display:flex; gap:12px"><button id="crocbox-btn-allow">Allow</button><button id="crocbox-btn-deny">Block</button></div>';
-      document.body.appendChild(overlay);
-      console.log('[CROCbox] Green Shield consent card shown for: ${safeToolName}');
-      document.getElementById('crocbox-btn-allow').addEventListener('click', function() {
-        console.log('[CROCbox] Green Shield: User clicked ALLOW');
-        overlay.remove();
-        fetch('http://127.0.0.1:${GREEN_SHIELD_PORT}/green-shield-resolve', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ requestId: requestId, decision: 'allow' })
-        }).catch(function(e) { console.error('[CROCbox] Green Shield resolve failed:', e); });
-      });
-      document.getElementById('crocbox-btn-deny').addEventListener('click', function() {
-        console.log('[CROCbox] Green Shield: User clicked BLOCK');
-        overlay.remove();
-        fetch('http://127.0.0.1:${GREEN_SHIELD_PORT}/green-shield-resolve', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ requestId: requestId, decision: 'deny' })
-        }).catch(function(e) { console.error('[CROCbox] Green Shield resolve failed:', e); });
-      });
-    })();
-  `;
-  mainWindow.webContents.executeJavaScript(cardJS).then(function() {
-    console.log('[GreenShield] Consent card rendered for ' + toolName);
-  }).catch(function(err) {
-    console.error('[GreenShield] Card render failed:', err.message);
-  });
 }
 
 // ── HTTP Consent Server ────────────────────────────────────────
 let server = null;
 
-function startGreenShieldServer(win) {
-  mainWindow = win;
+function startGreenShieldServer() {
   
   server = http.createServer(function(req, res) {
     // CORS headers for local requests
@@ -208,7 +148,7 @@ function startGreenShieldServer(win) {
           });
           
           // Show the Green Shield consent card
-          showGreenShieldCard(requestId, toolName, toolParams);
+          notifyConsentRequest(requestId, toolName, toolParams);
           
           // Block the HTTP response until the NHB decides
           consentPromise.then(function(result) {
@@ -226,52 +166,9 @@ function startGreenShieldServer(win) {
       return;
     }
     
-    // ── Consent Resolution (from renderer button click) ───────
-    if (req.method === 'POST' && req.url === '/green-shield-resolve') {
-      let body = '';
-      req.on('data', function(chunk) { body += chunk; });
-      req.on('end', function() {
-        try {
-          var data = JSON.parse(body);
-          var requestId = data.requestId;
-          var decision = data.decision;
-          
-          if (!requestId || (decision !== 'allow' && decision !== 'deny')) {
-            res.writeHead(400, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ error: 'invalid decision' }));
-            return;
-          }
-          
-          var pending = pendingGreenConsents.get(requestId);
-          if (!pending) {
-            console.log('[GreenShield] Resolve: requestId ' + requestId + ' not found (expired or already resolved)');
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({ ok: true, note: 'already-resolved' }));
-            return;
-          }
-          
-          clearTimeout(pending.timer);
-          pendingGreenConsents.delete(requestId);
-          
-          var allowed = decision === 'allow';
-          writeGreenShieldAudit(requestId, pending.toolName, decision, pending.params);
-          
-          console.log('[GreenShield] Resolved: ' + decision + ' tool=' + pending.toolName + ' id=' + requestId);
-          pending.resolve({ allowed: allowed, reason: 'user-' + decision });
-          
-          res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: true, decision: decision }));
-          
-        } catch (err) {
-          console.error('[GreenShield] Bad resolve request:', err.message);
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: err.message }));
-        }
-      });
-      return;
-    }
-    
-    // ── Health check ──────────────────────────────────────────
+    // ── Consent Resolution now handled via IPC (main.js calls resolveGreenConsent) ──
+
+    // ── Health check // ── Health check ──────────────────────────────────────────
     if (req.method === 'GET' && req.url === '/green-shield-health') {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, shield: 'green', pending: pendingGreenConsents.size }));
@@ -310,9 +207,36 @@ function stopGreenShieldServer() {
   }
 }
 
+// Called by main.js when renderer sends a consent decision via IPC
+function resolveGreenConsent(requestId, decision) {
+  if (!requestId || (decision !== 'allow' && decision !== 'deny')) {
+    console.log('[GreenShield] resolveGreenConsent: invalid args — requestId=' + requestId + ' decision=' + decision);
+    return { ok: false, error: 'invalid-args' };
+  }
+  var pending = pendingGreenConsents.get(requestId);
+  if (!pending) {
+    console.log('[GreenShield] resolveGreenConsent: requestId ' + requestId + ' not found (expired or already resolved)');
+    return { ok: true, note: 'already-resolved' };
+  }
+  clearTimeout(pending.timer);
+  pendingGreenConsents.delete(requestId);
+  var allowed = decision === 'allow';
+  writeGreenShieldAudit(requestId, pending.toolName, decision, pending.params);
+  console.log('[GreenShield] Resolved via IPC: ' + decision + ' tool=' + pending.toolName + ' id=' + requestId);
+  pending.resolve({ allowed: allowed, reason: 'user-' + decision });
+  return { ok: true, decision: decision };
+}
+
+function setConsentCallback(cb) {
+  consentCallback = cb;
+  console.log('[GreenShield] Consent callback registered');
+}
+
 module.exports = {
   startGreenShieldServer,
   stopGreenShieldServer,
+  resolveGreenConsent,
+  setConsentCallback,
   GREEN_SHIELD_PORT,
   pendingGreenConsents
 };
