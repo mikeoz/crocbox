@@ -33,7 +33,7 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 // ── MITM Proxy Module ──────────────────────────────────────────
-const { startProxy, stopProxy, setConsentIPC, resolveConsent, PROXY_PORT } = require('./ws-proxy');
+const { startProxy, stopProxy, setConsentIPC, resolveConsent, setGreenShieldActive, PROXY_PORT } = require('./ws-proxy');
 const { computeShieldScore, getShieldDetailHTML, parseCatalog } = require('./shield-score');
 const { startGreenShieldServer, stopGreenShieldServer, GREEN_SHIELD_PORT } = require('./green-shield-gate');
 const { enroll: veEnroll, verify: veVerify, checkStatus: veCheckStatus } = require('./card_ve_client');
@@ -1010,7 +1010,7 @@ function injectCROCboxTrustBar(win, score) {
         '</div>' +
         '<div style="width:1px;height:16px;background:#333;"></div>' +
         '<div id="crocbox-bar-shield" style="display:flex;align-items:center;gap:6px;cursor:pointer;">' +
-          '<svg width="18" height="22" viewBox="0 0 100 120" style="display:inline-block"><path d="M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z" fill="#58585C" stroke="#707074" stroke-width="3"/><path d="M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z" fill="#CA8A04"/><path d="M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z" fill="#EAB308"/></svg>' +
+          '<svg width="18" height="22" viewBox="0 0 100 120" style="display:inline-block"><path d="M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z" fill="${score && score.color === 'green' ? '#1B5E20' : '#58585C'}" stroke="${score && score.color === 'green' ? '#2E7D32' : '#707074'}" stroke-width="3"/><path d="M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z" fill="${score && score.color === 'green' ? '#2E7D32' : '#CA8A04'}"/><path d="M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z" fill="${score && score.color === 'green' ? '#4CAF50' : '#EAB308'}"/></svg>' +
           '<span style="font-size:11px;color:${colorHex};font-weight:500;">${shieldLabel}</span>' +
         '</div>';
 
@@ -1202,7 +1202,7 @@ function computeAndInjectShield(win, catalogPayload) {
     return;
   }
   // Current CROCbox is always Yellow Shield (CBD)
-  currentShieldScore = computeShieldScore(tools, 'yellow', 0);
+  currentShieldScore = computeShieldScore(tools, greenShieldActive ? 'green' : 'yellow', 0);
   console.log('[CROCbox] Shield Score computed:');
   console.log('[CROCbox]   Color: ' + currentShieldScore.color.toUpperCase());
   console.log('[CROCbox]   OWASP: ' + currentShieldScore.owasp.classified + '/' + currentShieldScore.owasp.toolCount + ' classified');
@@ -1780,6 +1780,8 @@ app.whenReady().then(async () => {
   wireConsentIPC(mainWindow);
   // Step 7b: Start Green Shield consent server (CBE — Consent Before Execution)
   startGreenShieldServer(mainWindow);
+  setGreenShieldActive(true);
+  greenShieldActive = true;
   console.log('[CROCbox] Green Shield consent server started ✓');
 
   // Step 8: Inject first prompt on first launch (OB-3)
