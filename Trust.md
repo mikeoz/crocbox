@@ -5,7 +5,7 @@
 
 ## Consent Model
 
-CROCbox enforces Consent Before Delivery (Yellow Shield).
+CROCbox enforces Consent Before Execution (Green Shield).
 
 When the AI agent executes an action through OpenClaw, CROCbox intercepts the
 result before it reaches the user. The user reviews the result and decides:
@@ -46,12 +46,12 @@ These are the rights CROCbox guarantees to the user:
 CROCbox supports three shield levels. The active level determines when
 the user's consent is requested.
 
-- Green Shield: Consent Before Execution
+- Green Shield: Consent Before Execution [ACTIVE]
   The agent asks the user BEFORE performing an action.
   The action does not execute until the user approves.
   Status: Future (requires platform support for pre-execution hooks)
 
-- Yellow Shield: Consent Before Delivery [ACTIVE]
+- Yellow Shield: Consent Before Delivery
   The agent acts. CROCbox catches the result. The user reviews and decides.
   The result is not delivered until the user allows it.
 

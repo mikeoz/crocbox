@@ -76,6 +76,12 @@ function setConsentIPC(callback) {
   consentIPCCallback = callback;
   console.log('[ws-proxy] Consent IPC callback registered');
 }
+
+function setGreenShieldActive(active) {
+  greenShieldActive = !!active;
+  console.log('[ws-proxy] Green Shield active: ' + greenShieldActive + (greenShieldActive ? ' — Yellow Shield seq-gap detection DISABLED' : ''));
+}
+
 // ── Message Counter ────────────────────────────────────────────
 let messageCount = { clientToGateway: 0, gatewayToClient: 0, httpRequests: 0 };
 // ── A.10: Pending Approval State (Green Shield — ready if OC enables) ──
@@ -567,7 +573,7 @@ function startProxy(config) {
                   return;
                 }
                 // Seq-gap detection on assistant stream
-                if (stream === 'assistant' && run.lastSeq > 0 && seq > run.lastSeq + 1) {
+                if (!greenShieldActive && stream === 'assistant' && run.lastSeq > 0 && seq > run.lastSeq + 1) {
                   // *** SEQ GAP DETECTED — Yellow Shield trigger ***
                   const gapSize = seq - run.lastSeq - 1;
                   const holdId = 'ysh-' + crypto.randomUUID().substring(0, 12);
@@ -708,6 +714,7 @@ function stopProxy(server) {
 }
 // ── Exports ────────────────────────────────────────────────────
 module.exports = {
+  setGreenShieldActive,
   startProxy,
   stopProxy,
   setConsentIPC,
