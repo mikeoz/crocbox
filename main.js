@@ -973,6 +973,10 @@ function injectCROCboxTrustBar(win, score) {
   var colorHex = score && score.color === 'green' ? '#4CAF50' :
                  score && score.color === 'yellow' ? '#d4a017' : '#e53935';
   var shieldLabel = score ? score.color.toUpperCase() : 'UNKNOWN';
+  var svgOuter = score && score.color === 'green' ? '#1B5E20' : '#58585C';
+  var svgStroke = score && score.color === 'green' ? '#2E7D32' : '#707074';
+  var svgMid = score && score.color === 'green' ? '#2E7D32' : '#CA8A04';
+  var svgInner = score && score.color === 'green' ? '#4CAF50' : '#EAB308';
   
   win.webContents.executeJavaScript(`
     (function() {
@@ -1010,7 +1014,7 @@ function injectCROCboxTrustBar(win, score) {
         '</div>' +
         '<div style="width:1px;height:16px;background:#333;"></div>' +
         '<div id="crocbox-bar-shield" style="display:flex;align-items:center;gap:6px;cursor:pointer;">' +
-          '<svg width="18" height="22" viewBox="0 0 100 120" style="display:inline-block"><path d="M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z" fill="${score && score.color === 'green' ? '#1B5E20' : '#58585C'}" stroke="${score && score.color === 'green' ? '#2E7D32' : '#707074'}" stroke-width="3"/><path d="M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z" fill="${score && score.color === 'green' ? '#2E7D32' : '#CA8A04'}"/><path d="M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z" fill="${score && score.color === 'green' ? '#4CAF50' : '#EAB308'}"/></svg>' +
+          '<svg width="18" height="22" viewBox="0 0 100 120" style="display:inline-block"><path d="M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z" fill="${svgOuter}" stroke="${svgStroke}" stroke-width="3"/><path d="M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z" fill="${svgMid}"/><path d="M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z" fill="${svgInner}"/></svg>' +
           '<span style="font-size:11px;color:${colorHex};font-weight:500;">${shieldLabel}</span>' +
         '</div>';
 
