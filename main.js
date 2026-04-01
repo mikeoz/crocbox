@@ -35,6 +35,7 @@ const fs = require('fs');
 // ── MITM Proxy Module ──────────────────────────────────────────
 const { startProxy, stopProxy, setConsentIPC, resolveConsent, PROXY_PORT } = require('./ws-proxy');
 const { computeShieldScore, getShieldDetailHTML, parseCatalog } = require('./shield-score');
+const { startGreenShieldServer, stopGreenShieldServer, GREEN_SHIELD_PORT } = require('./green-shield-gate');
 const { enroll: veEnroll, verify: veVerify, checkStatus: veCheckStatus } = require('./card_ve_client');
 // ── Configuration ──────────────────────────────────────────────
 const GATEWAY_PORT = 18789;
@@ -1777,6 +1778,9 @@ app.whenReady().then(async () => {
 
   // Step 7: Wire Yellow Shield consent IPC (A.11)
   wireConsentIPC(mainWindow);
+  // Step 7b: Start Green Shield consent server (CBE — Consent Before Execution)
+  startGreenShieldServer(mainWindow);
+  console.log('[CROCbox] Green Shield consent server started ✓');
 
   // Step 8: Inject first prompt on first launch (OB-3)
   if (firstLaunch) {
