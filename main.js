@@ -809,424 +809,13 @@ function openTrustActivity() {
   actWin.setMenuBarVisibility(false);
 }
 
-// ── Shield Scoring Engine UI ────────────────────────────────────
-function injectShieldIcon(win, score) {
-  if (!win || win.isDestroyed()) return;
-  const colorHex = score.color === 'green' ? '#4CAF50' :
-                   score.color === 'yellow' ? '#d4a017' : '#e53935';
-  const shieldChar = score.color === 'green' ? '\u2705' :
-                     score.color === 'yellow' ? '\uD83D\uDEE1\uFE0F' : '\uD83D\uDD34';
-
-  win.webContents.executeJavaScript(`
-    (function() {
-      // Remove existing shield
-      var old = document.getElementById('crocbox-shield-icon');
-      if (old) old.remove();
-      if (!document.getElementById('crocbox-shield-style')) {
-        var s = document.createElement('style');
-        s.id = 'crocbox-shield-style';
-        s.textContent = '#crocbox-shield-icon { position:fixed; top:8px; right:170px; z-index:999990; cursor:pointer; padding:4px 12px; border-radius:8px; background:rgba(0,0,0,0.7); border:1px solid ${colorHex}40; display:flex; align-items:center; gap:6px; transition:all 0.2s; } #crocbox-shield-icon:hover { background:rgba(0,0,0,0.9); border-color:${colorHex}; } #crocbox-shield-detail { position:fixed; top:44px; right:170px; z-index:999991; width:340px; background:rgba(0,0,0,0.95); border:1px solid ${colorHex}40; border-radius:12px; display:none; } #crocbox-shield-detail.visible { display:block; }';
-        document.head.appendChild(s);
-      }
-      var icon = document.createElement('div');
-      icon.id = 'crocbox-shield-icon';
-      icon.innerHTML = '<span style="font-size:18px">${shieldChar}</span><span style="font-size:12px;color:${colorHex};font-weight:500;font-family:-apple-system,sans-serif;text-transform:uppercase">${score.color}</span>';
-      document.body.appendChild(icon);
-      // Detail panel
-      var detail = document.createElement('div');
-      detail.id = 'crocbox-shield-detail';
-      document.body.appendChild(detail);
-      // Close shield detail when clicking outside
-      document.addEventListener('click', function(ev) {
-        if (detail.classList.contains('visible') && !detail.contains(ev.target) && ev.target !== icon && !icon.contains(ev.target)) {
-          detail.classList.remove('visible');
-        }
-      });
-      icon.addEventListener('click', function() {
-        // Close controls panel if open
-        var cp = document.getElementById('crocbox-controls-panel');
-        if (cp) cp.classList.remove('visible');
-        if (detail.classList.contains('visible')) {
-          detail.classList.remove('visible');
-        } else {
-          // Request detail HTML from main process
-          if (window.crocbox && window.crocbox.getShieldDetail) {
-            window.crocbox.getShieldDetail().then(function(html) {
-              detail.innerHTML = html + '<div style="padding:8px 20px 16px;text-align:center;border-top:1px solid #333"><a id="crocbox-activity-link" href="#" style="color:#d4a017;font-size:11px;text-decoration:none;cursor:pointer">View Trust Activity</a><span style="margin:0 8px;color:#444">·</span><a id="crocbox-detail-close" href="#" style="color:#888;font-size:11px;text-decoration:none;cursor:pointer">Close</a></div>';
-              setTimeout(function(){ var al = document.getElementById('crocbox-activity-link'); if(al) al.addEventListener('click', function(ev){ ev.preventDefault(); if(window.crocbox&&window.crocbox.openTrustActivity) window.crocbox.openTrustActivity(); }); var cl = document.getElementById('crocbox-detail-close'); if(cl) cl.addEventListener('click', function(ev){ ev.preventDefault(); detail.classList.remove('visible'); }); }, 100);
-              detail.classList.add('visible');
-            });
-          }
-        }
-      });
-      console.log('[CROCbox] Shield icon injected: ${score.color}');
-    })();
-  `).catch(function(err) {
-    console.log('[CROCbox] Shield icon injection failed: ' + err.message);
-  });
-}
-
-// ── keyCARD Window ──────────────────────────────────────────────
-function openKeyCARDWindow() {
-  const { BrowserWindow, ipcMain: kcIpc } = require('electron');
-  
-  // Read current key (masked)
-  var ocDir = path.join(process.env.HOME || '/tmp', '.openclaw');
-  var authPath = path.join(ocDir, 'agents', 'main', 'agent', 'auth-profiles.json');
-  var currentKey = '';
-  var currentLabel = 'anthropic:default';
-  try {
-    var profiles = JSON.parse(fs.readFileSync(authPath, 'utf8'));
-    var first = Object.keys(profiles.profiles || {})[0] || '';
-    if (first && profiles.profiles[first].key) {
-      currentKey = profiles.profiles[first].key;
-      currentLabel = first;
-    }
-  } catch(e) {}
-  
-  var masked = currentKey ? currentKey.substring(0, 12) + '...' + currentKey.substring(currentKey.length - 4) : '(no key configured)';
-
-  var kcWin = new BrowserWindow({
-    width: 480,
-    height: 420,
-    title: 'keyCARD — API Key Manager',
-    resizable: false,
-    minimizable: false,
-    maximizable: false,
-    alwaysOnTop: true,
-    webPreferences: { nodeIntegration: false, contextIsolation: true }
-  });
-  kcWin.setMenuBarVisibility(false);
-
-  var html = `<!DOCTYPE html>
-<html><head><meta charset="utf-8"><title>keyCARD</title>
-<style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { font-family:-apple-system,BlinkMacSystemFont,sans-serif; background:#1a1a1a; color:#e0e0e0; padding:24px; }
-  h1 { font-size:20px; color:#d4a017; margin-bottom:4px; }
-  .subtitle { font-size:12px; color:#888; margin-bottom:24px; }
-  .current { background:#222; border:1px solid #333; border-radius:8px; padding:14px; margin-bottom:20px; }
-  .current-label { font-size:11px; color:#888; margin-bottom:4px; }
-  .current-key { font-size:13px; color:#d4a017; font-family:SF Mono,Menlo,monospace; }
-  label { font-size:12px; color:#aaa; display:block; margin-bottom:6px; }
-  input { width:100%; padding:10px 12px; background:#222; border:1px solid #444; border-radius:6px; color:#e0e0e0; font-size:13px; font-family:SF Mono,Menlo,monospace; margin-bottom:12px; outline:none; }
-  input:focus { border-color:#d4a017; }
-  .btn-row { display:flex; gap:10px; margin-top:8px; }
-  button { flex:1; padding:10px; border-radius:6px; border:none; font-size:13px; font-weight:500; cursor:pointer; }
-  .btn-save { background:#d4a017; color:#000; }
-  .btn-save:hover { background:#e0b020; }
-  .btn-cancel { background:#333; color:#ccc; }
-  .btn-cancel:hover { background:#444; }
-  .status { font-size:12px; margin-top:12px; min-height:18px; }
-  .trust-note { font-size:11px; color:#666; margin-top:16px; border-top:1px solid #333; padding-top:12px; line-height:1.5; }
-</style></head><body>
-  <h1>\uD83D\uDD11 keyCARD</h1>
-  <div class="subtitle">Secure API Key Manager · CROCbox</div>
-  <div class="current">
-    <div class="current-label">Current key (${currentLabel})</div>
-    <div class="current-key">${masked}</div>
-  </div>
-  <label for="kc-label">Label</label>
-  <input type="text" id="kc-label" value="anthropic:default" placeholder="anthropic:default">
-  <label for="kc-key">API Key</label>
-  <input type="password" id="kc-key" placeholder="Paste your API key here">
-  <div class="btn-row">
-    <button class="btn-cancel" id="kc-cancel">Cancel</button>
-    <button class="btn-save" id="kc-save">Save keyCARD</button>
-  </div>
-  <div class="status" id="kc-status"></div>
-  <div class="trust-note">Your keyCARD stores API credentials securely on this computer. Keys are never sent anywhere except the AI provider you choose. This action is logged in your Trust Activity.</div>
-<script>
-  document.getElementById('kc-cancel').addEventListener('click', function() { window.close(); });
-  document.getElementById('kc-save').addEventListener('click', function() {
-    var label = document.getElementById('kc-label').value.trim();
-    var key = document.getElementById('kc-key').value.trim();
-    if (!key) { document.getElementById('kc-status').innerHTML = '<span style="color:#e53935">Please paste an API key.</span>'; return; }
-    if (!label) { label = 'anthropic:default'; }
-    // Post to parent via title hack (no preload in this window)
-    document.title = 'KEYCARD_SAVE:' + JSON.stringify({label: label, key: key});
-  });
-</script>
-</body></html>`;
-
-  kcWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-
-  // Watch for title change (save signal from renderer)
-  kcWin.on('page-title-updated', function(ev) {
-    ev.preventDefault();
-    var title = kcWin.getTitle();
-    if (title.startsWith('KEYCARD_SAVE:')) {
-      try {
-        var data = JSON.parse(title.substring('KEYCARD_SAVE:'.length));
-        // Write to auth-profiles.json
-        var profiles = { version: 1, profiles: {}, usageStats: {} };
-        try { profiles = JSON.parse(fs.readFileSync(authPath, 'utf8')); } catch(e) {}
-        profiles.profiles[data.label] = { type: 'api_key', provider: data.label.split(':')[0] || 'anthropic', key: data.key };
-        var authDir2 = path.dirname(authPath);
-        if (!fs.existsSync(authDir2)) fs.mkdirSync(authDir2, { recursive: true });
-        fs.writeFileSync(authPath, JSON.stringify(profiles, null, 2), 'utf8');
-        console.log('[CROCbox] keyCARD saved: ' + data.label);
-        // Audit log entry
-        try {
-          var auditDir = path.join(process.env.HOME || '/tmp', 'opnli', 'crocbox', 'logs');
-          if (!fs.existsSync(auditDir)) fs.mkdirSync(auditDir, { recursive: true });
-          var auditPath = path.join(auditDir, 'crocbox-audit.jsonl');
-          var prev = 'genesis';
-          try { var lines = fs.readFileSync(auditPath,'utf8').trim().split('\n'); var last = JSON.parse(lines[lines.length-1]); prev = last.hash || 'genesis'; } catch(e) {}
-          var entry = { timestamp: new Date().toISOString(), action: 'keycard-save', target: data.label, result: 'stored', reason: 'user-provided', detail: 'Key updated via keyCARD UI', shield: 'yellow' };
-          var hashData = JSON.stringify(entry) + prev;
-          entry.prev_hash = prev;
-          entry.hash = require('crypto').createHash('sha256').update(hashData).digest('hex');
-          fs.appendFileSync(auditPath, JSON.stringify(entry) + '\n');
-          console.log('[CROCbox] keyCARD save logged to audit trail');
-        } catch(ae) { console.log('[CROCbox] keyCARD audit log failed: ' + ae.message); }
-        kcWin.close();
-      } catch(e) {
-        console.log('[CROCbox] keyCARD save failed: ' + e.message);
-      }
-    }
-  });
-}
-
-// ── CROCbox Trust Bar (unified top bar) ─────────────────────────
-function injectCROCboxTrustBar(win, score) {
-  if (!win || win.isDestroyed()) return;
-  var colorHex = score && score.color === 'green' ? '#4CAF50' :
-                 score && score.color === 'yellow' ? '#d4a017' : '#e53935';
-  var shieldLabel = score ? score.color.toUpperCase() : 'UNKNOWN';
-  var svgOuter = score && score.color === 'green' ? '#1B5E20' : '#58585C';
-  var svgStroke = score && score.color === 'green' ? '#2E7D32' : '#707074';
-  var svgMid = score && score.color === 'green' ? '#2E7D32' : '#CA8A04';
-  var svgInner = score && score.color === 'green' ? '#4CAF50' : '#EAB308';
-  
-  win.webContents.executeJavaScript(`
-    (function() {
-      // Remove existing trust bar if present
-      var old = document.getElementById('crocbox-trust-bar');
-      if (old) old.remove();
-
-      // Hide the individually positioned elements (we replace them)
-      var si = document.getElementById('crocbox-shield-icon');
-      if (si) si.style.display = 'none';
-      var ti = document.getElementById('crocbox-trust-indicator');
-      if (ti) ti.style.display = 'none';
-      var cb = document.getElementById('crocbox-controls-btn');
-      if (cb) cb.style.display = 'none';
-
-      // Create the trust bar
-      var bar = document.createElement('div');
-      bar.id = 'crocbox-trust-bar';
-      bar.style.cssText = 'position:fixed; top:0; left:0; right:0; height:38px; z-index:999999; background:#111; border-bottom:1px solid #333; display:flex; align-items:center; justify-content:center; gap:24px; position:relative; font-family:-apple-system,sans-serif; padding:0 16px;';
-
-      // Trust Network status
-      var veStatus = document.getElementById('crocbox-trust-indicator');
-      var veLabel = veStatus ? veStatus.textContent.trim() : 'Local Mode';
-      var veColor = veLabel.includes('Trust Network') ? '#4CAF50' : '#d4a017';
-
-      bar.innerHTML = 
-        '<div style="display:flex;align-items:center;gap:6px;cursor:default;">' +
-          '<span style="font-size:12px;color:' + veColor + ';">\u25CF</span>' +
-          '<span style="font-size:12px;color:' + veColor + ';font-weight:500;">' + veLabel + '</span>' +
-        '</div>' +
-        '<div style="width:1px;height:16px;background:#333;"></div>' +
-        '<div id="crocbox-bar-controls" style="display:flex;align-items:center;gap:5px;cursor:pointer;">' +
-          '<span style="font-size:12px;">\u2699\uFE0F</span>' +
-          '<span style="font-size:12px;color:#ccc;font-weight:500;">Controls</span>' +
-        '</div>' +
-        '<div style="width:1px;height:16px;background:#333;"></div>' +
-        '<div id="crocbox-bar-shield" style="display:flex;align-items:center;gap:6px;cursor:pointer;">' +
-          '<svg width="18" height="22" viewBox="0 0 100 120" style="display:inline-block"><path d="M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z" fill="${svgOuter}" stroke="${svgStroke}" stroke-width="3"/><path d="M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z" fill="${svgMid}"/><path d="M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z" fill="${svgInner}"/></svg>' +
-          '<span style="font-size:11px;color:${colorHex};font-weight:500;">${shieldLabel}</span>' +
-        '</div>';
-
-            document.body.prepend(bar);
-
-      // Push OpenClaw content down
-      document.body.style.marginTop = '38px';
-
-      // Wire Controls click to toggle the existing controls panel
-      var barCtrl = document.getElementById('crocbox-bar-controls');
-      if (barCtrl) {
-        barCtrl.addEventListener('click', function(ev) {
-          ev.stopPropagation();
-          var panel = document.getElementById('crocbox-controls-panel');
-          if (panel) {
-            // Reposition panel below trust bar
-            panel.style.top = '42px';
-            panel.style.right = '50%';
-            panel.style.transform = 'translateX(50%)';
-            panel.classList.toggle('visible');
-            // Close shield detail if open
-            var sd = document.getElementById('crocbox-shield-detail');
-            if (sd) sd.classList.remove('visible');
-          } else if (window.crocbox && window.crocbox.openKeyCARD) {
-            // Fallback: open keyCARD directly
-            window.crocbox.openKeyCARD();
-          }
-        });
-      }
-
-      // Wire Shield click to toggle the existing shield detail panel
-      var barShield = document.getElementById('crocbox-bar-shield');
-      if (barShield) {
-        barShield.addEventListener('click', function(ev) {
-          ev.stopPropagation();
-          var detail = document.getElementById('crocbox-shield-detail');
-          if (detail) {
-            // Reposition detail below trust bar
-            detail.style.top = '36px';
-            detail.style.right = '50%';
-            detail.style.transform = 'translateX(50%)';
-            if (detail.classList.contains('visible')) {
-              detail.classList.remove('visible');
-            } else {
-              if (window.crocbox && window.crocbox.getShieldDetail) {
-                window.crocbox.getShieldDetail().then(function(html) {
-                  detail.innerHTML = html + '<div style="padding:8px 20px 16px;text-align:center;border-top:1px solid #333"><a id="crocbox-activity-link2" href="#" style="color:#d4a017;font-size:11px;text-decoration:none;cursor:pointer">View Trust Activity</a><span style="margin:0 8px;color:#444">\u00B7</span><a id="crocbox-detail-close2" href="#" style="color:#888;font-size:11px;text-decoration:none;cursor:pointer">Close</a></div>';
-                  setTimeout(function(){ 
-                    var al = document.getElementById('crocbox-activity-link2'); 
-                    if(al) al.addEventListener('click', function(e){ e.preventDefault(); if(window.crocbox&&window.crocbox.openTrustActivity) window.crocbox.openTrustActivity(); }); 
-                    var cl = document.getElementById('crocbox-detail-close2'); 
-                    if(cl) cl.addEventListener('click', function(e){ e.preventDefault(); detail.classList.remove('visible'); }); 
-                  }, 100);
-                  detail.classList.add('visible');
-                });
-              }
-            }
-            // Close controls panel if open
-            var cp = document.getElementById('crocbox-controls-panel');
-            if (cp) cp.classList.remove('visible');
-          }
-        });
-      }
-
-      // Close panels when clicking outside
-      document.addEventListener('click', function(ev) {
-        var panel = document.getElementById('crocbox-controls-panel');
-        var detail = document.getElementById('crocbox-shield-detail');
-        var barC = document.getElementById('crocbox-bar-controls');
-        var barS = document.getElementById('crocbox-bar-shield');
-        if (panel && panel.classList.contains('visible') && !panel.contains(ev.target) && (!barC || !barC.contains(ev.target))) {
-          panel.classList.remove('visible');
-        }
-        if (detail && detail.classList.contains('visible') && !detail.contains(ev.target) && (!barS || !barS.contains(ev.target))) {
-          detail.classList.remove('visible');
-        }
-      });
-
-      console.log('[CROCbox] Trust bar injected');
-
-      // Re-inject trust bar if SPA destroys it
-      var barObserver = new MutationObserver(function() {
-        if (!document.getElementById('crocbox-trust-bar')) {
-          console.log('[CROCbox] Trust bar destroyed by SPA — re-injecting');
-          setTimeout(function() {
-            if (!document.getElementById('crocbox-trust-bar')) {
-              document.body.prepend(bar);
-              document.body.style.marginTop = '38px';
-            }
-          }, 200);
-        }
-      });
-      barObserver.observe(document.body, { childList: true, subtree: false });
-    })();
-  `).catch(function(err) {
-    console.log('[CROCbox] Trust bar injection failed: ' + err.message);
-  });
-}
-
-// ── Trust Wrapper: Controls Button ──────────────────────────────
-function injectControlsButton(win) {
-  if (!win || win.isDestroyed()) return;
-  win.webContents.executeJavaScript(`
-    (function() {
-      if (document.getElementById('crocbox-controls-btn')) return;
-
-      // Style block
-      if (!document.getElementById('crocbox-controls-style')) {
-        var s = document.createElement('style');
-        s.id = 'crocbox-controls-style';
-        s.textContent = [
-          '#crocbox-controls-btn { position:fixed; top:8px; right:300px; z-index:999990; cursor:pointer; padding:4px 12px; border-radius:8px; background:rgba(0,0,0,0.7); border:1px solid rgba(255,255,255,0.15); display:flex; align-items:center; gap:5px; transition:all 0.2s; font-family:-apple-system,sans-serif; }',
-          '#crocbox-controls-btn:hover { background:rgba(0,0,0,0.9); border-color:rgba(255,255,255,0.4); }',
-          '#crocbox-controls-panel { position:fixed; top:44px; right:300px; z-index:999991; width:280px; background:rgba(0,0,0,0.95); border:1px solid rgba(255,255,255,0.15); border-radius:12px; display:none; font-family:-apple-system,sans-serif; overflow:hidden; }',
-          '#crocbox-controls-panel.visible { display:block; }',
-          '.crocbox-ctrl-item { padding:12px 20px; cursor:pointer; display:flex; align-items:center; gap:10px; color:#ccc; font-size:13px; border-bottom:1px solid rgba(255,255,255,0.06); transition:background 0.15s; }',
-          '.crocbox-ctrl-item:hover { background:rgba(255,255,255,0.06); color:#fff; }',
-          '.crocbox-ctrl-item:last-child { border-bottom:none; }',
-          '.crocbox-ctrl-icon { font-size:16px; width:24px; text-align:center; }',
-          '.crocbox-ctrl-label { flex:1; }',
-          '.crocbox-ctrl-sublabel { font-size:10px; color:#888; margin-top:2px; }',
-          '#crocbox-controls-header { padding:14px 20px 10px; border-bottom:1px solid rgba(212,160,23,0.2); }',
-          '#crocbox-controls-header span { font-size:13px; font-weight:500; color:#d4a017; }'
-        ].join(' ');
-        document.head.appendChild(s);
-      }
-
-      // Button
-      var btn = document.createElement('div');
-      btn.id = 'crocbox-controls-btn';
-      btn.innerHTML = '<span style="font-size:14px">\u2699\uFE0F</span><span style="font-size:11px;color:#ccc;font-weight:500">Controls</span>';
-      document.body.appendChild(btn);
-
-      // Panel
-      var panel = document.createElement('div');
-      panel.id = 'crocbox-controls-panel';
-      panel.innerHTML = '<div id="crocbox-controls-header"><span>\uD83D\uDC0A CROCbox Controls</span></div>'
-        + '<div class="crocbox-ctrl-item" id="ctrl-keycard"><span class="crocbox-ctrl-icon">\uD83D\uDD11</span><div class="crocbox-ctrl-label">keyCARD<div class="crocbox-ctrl-sublabel">Manage API keys</div></div></div>'
-        + '<div class="crocbox-ctrl-item" id="ctrl-activity"><span class="crocbox-ctrl-icon">\uD83D\uDCCA</span><div class="crocbox-ctrl-label">Trust Activity<div class="crocbox-ctrl-sublabel">View audit trail</div></div></div>'
-        + '<div class="crocbox-ctrl-item" id="ctrl-trust-model"><span class="crocbox-ctrl-icon">\uD83D\uDCC4</span><div class="crocbox-ctrl-label">Trust Model<div class="crocbox-ctrl-sublabel">View Trust.md</div></div></div>'
-        + '<div class="crocbox-ctrl-item" id="ctrl-about"><span class="crocbox-ctrl-icon">\u2139\uFE0F</span><div class="crocbox-ctrl-label">About CROCbox<div class="crocbox-ctrl-sublabel">v1.0.0-alpha · Opn.li</div></div></div>';
-      document.body.appendChild(panel);
-
-      // Toggle panel
-      btn.addEventListener('click', function(ev) {
-        ev.stopPropagation();
-        panel.classList.toggle('visible');
-        // Close shield detail if open
-        var sd = document.getElementById('crocbox-shield-detail');
-        if (sd) sd.classList.remove('visible');
-      });
-
-      // Close when clicking outside
-      document.addEventListener('click', function(ev) {
-        if (!panel.contains(ev.target) && ev.target !== btn && !btn.contains(ev.target)) {
-          panel.classList.remove('visible');
-        }
-      });
-
-      // Wire menu items
-      document.getElementById('ctrl-keycard').addEventListener('click', function() {
-        panel.classList.remove('visible');
-        if (window.crocbox && window.crocbox.openKeyCARD) window.crocbox.openKeyCARD();
-      });
-      document.getElementById('ctrl-activity').addEventListener('click', function() {
-        panel.classList.remove('visible');
-        if (window.crocbox && window.crocbox.openTrustActivity) window.crocbox.openTrustActivity();
-      });
-      document.getElementById('ctrl-trust-model').addEventListener('click', function() {
-        panel.classList.remove('visible');
-        if (window.crocbox && window.crocbox.openTrustModel) window.crocbox.openTrustModel();
-      });
-      document.getElementById('ctrl-about').addEventListener('click', function() {
-        panel.classList.remove('visible');
-        if (window.crocbox && window.crocbox.openAbout) window.crocbox.openAbout();
-      });
-
-      console.log('[CROCbox] Controls button injected');
-    })();
-  `).catch(function(err) {
-    console.log('[CROCbox] Controls injection failed: ' + err.message);
-  });
-}
-
+// ── Shield Score + Trust Bar IPC ────────────────────────────────
 function computeAndInjectShield(win, catalogPayload) {
   var tools = parseCatalog(catalogPayload);
   if (tools.length === 0) {
     console.log('[CROCbox] Shield: No tools in catalog — skipping');
     return;
   }
-  // Current CROCbox is always Yellow Shield (CBD)
   currentShieldScore = computeShieldScore(tools, greenShieldActive ? 'green' : 'yellow', 0);
   console.log('[CROCbox] Shield Score computed:');
   console.log('[CROCbox]   Color: ' + currentShieldScore.color.toUpperCase());
@@ -1234,16 +823,13 @@ function computeAndInjectShield(win, catalogPayload) {
   console.log('[CROCbox]   AWS Scope: ' + currentShieldScore.aws.scope + ' (' + currentShieldScore.aws.label + ')');
   console.log('[CROCbox]   Meta: ' + currentShieldScore.meta.config + (currentShieldScore.meta.hitlRequired ? ' — HITL mandatory' : ''));
   console.log('[CROCbox]   Catalog Hash: ' + currentShieldScore.catalogHash.substring(0, 16) + '...');
-  injectShieldIcon(win, currentShieldScore);
-  injectControlsButton(win);
-  // Trust Bar via IPC (A.12 — replaces executeJavaScript injection)
+  // Send Trust Bar data via IPC — preload renders it
   if (win && !win.isDestroyed() && win.webContents) {
     var veIndicator = veStatus === 'enrolled' ? 'Trust Network' : 'Local Mode';
     win.webContents.send('crocbox:trust-bar', { score: currentShieldScore, veLabel: veIndicator });
     console.log('[CROCbox] Trust Bar data sent via IPC (color=' + currentShieldScore.color + ')');
   }
 }
-
 // ── Welcome Screen (first launch only) ─────────────────────────
 function showWelcomeScreen() {
   return new Promise((resolve) => {
@@ -1274,31 +860,31 @@ function showWelcomeScreen() {
   .subtitle { font-size:15px; color:#999; margin-bottom:32px; }
   .steps { text-align:left; width:100%; max-width:420px; }
   .step { display:flex; align-items:flex-start; gap:14px; margin-bottom:20px; }
-  .step-num { width:28px; height:28px; border-radius:50%; background:#d4a017; color:#000;
+  .step-num { width:28px; height:28px; border-radius:50%; background:#2E7D32; color:#fff;
               display:flex; align-items:center; justify-content:center; font-weight:700;
               font-size:14px; flex-shrink:0; }
   .step-text { font-size:14px; line-height:1.5; color:#ccc; padding-top:3px; }
   .step-text strong { color:#f0f0f0; }
   .btn-row { padding:24px 40px; display:flex; justify-content:center; -webkit-app-region:no-drag; }
   .btn { padding:14px 48px; border:none; border-radius:10px; font-size:16px; font-weight:500;
-         cursor:pointer; background:#d4a017; color:#000; font-family:-apple-system,system-ui,Helvetica,Arial,sans-serif; }
-  .btn:hover { background:#e0b020; }
+         cursor:pointer; background:#2E7D32; color:#fff; font-family:-apple-system,system-ui,Helvetica,Arial,sans-serif; }
+  .btn:hover { background:#388E3C; }
   .footer { font-size:11px; color:#555; text-align:center; padding-bottom:16px; }
 </style></head><body>
 <div class="content">
-  <div class="shield"><svg width="72" height="86" viewBox="0 0 100 120" style="display:inline-block"><path d="M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z" fill="#58585C" stroke="#707074" stroke-width="1.5"/><path d="M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z" fill="#CA8A04"/><path d="M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z" fill="#EAB308"/></svg></div>
-  <h1>Your AI, Your Control</h1>
-  <div class="subtitle">CROCbox wraps your AI agent in a trust layer</div>
+  <div class="shield"><svg width="72" height="86" viewBox="0 0 100 120" style="display:inline-block"><path d="M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z" fill="#1B5E20" stroke="#2E7D32" stroke-width="1.5"/><path d="M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z" fill="#2E7D32"/><path d="M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z" fill="#4CAF50"/></svg></div>
+  <h1>Your AI Is Ready</h1>
+  <div class="subtitle">It asks before every action</div>
   <div class="steps">
     <div class="step"><div class="step-num">1</div>
-      <div class="step-text"><strong>Your AI acts.</strong> It can search the web, run commands, read files &#8212; real actions on your computer.</div></div>
+      <div class="step-text"><strong>Your AI wants to act.</strong> Search the web, run commands, read files &#8212; real actions on your computer.</div></div>
     <div class="step"><div class="step-num">2</div>
-      <div class="step-text"><strong>CROCbox catches it.</strong> Every action is detected and held. The Yellow Shield appears.</div></div>
+      <div class="step-text"><strong>CROCbox asks you first.</strong> Every action is intercepted before it happens. The Green Shield appears.</div></div>
     <div class="step"><div class="step-num">3</div>
-      <div class="step-text"><strong>You decide.</strong> Allow the result or block it. Your choice, every time.</div></div>
+      <div class="step-text"><strong>You decide.</strong> Allow or block. Nothing happens without your approval.</div></div>
   </div>
 </div>
-<div class="btn-row"><button class="btn" onclick="window.close()">See the Magic</button></div>
+<div class="btn-row"><button class="btn" onclick="window.close()">Get Started</button></div>
 <div class="footer">My data + Your AI + My control = Living Intelligence</div>
 </body></html>`;
     // Load welcome HTML via base64 data URI (avoids temp file encoding issues)
@@ -1533,7 +1119,7 @@ function wireConsentIPC(win) {
     require('electron').dialog.showMessageBoxSync({
       type: 'info',
       title: 'About CROCbox',
-      message: 'CROCbox v1.0.0-alpha',
+      message: 'CROCbox v1.0.0-beta.1',
       detail: 'The Agent Trust Layer for OpenClaw\n\nMy data + Your AI + My control = Living Intelligence\n\n© 2026 Openly Personal Networks, Inc. (Opn.li)\nhttps://opn.li'
     });
     return true;
@@ -1555,11 +1141,61 @@ let veAgentId = null; // VE agent ID (from enrollment)
 app.whenReady().then(async () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║   CROCbox v1.0.0 — Day One       ║');
+  console.log('  ║   CROCbox v1.0.0-beta.1 — Green Shield       ║');
   console.log('  ║   The Agent Trust Layer for OpenClaw  ║');
   console.log('  ║   Shield Scoring Engine Edition       ║');
   console.log('  ╚══════════════════════════════════════╝');
   console.log('');
+
+  // Step -1: Clean orphan CROCbox processes holding our ports
+  (function cleanOrphanProcesses() {
+    var portsToCheck = [18788, 18793];
+    var execSync = require("child_process").execSync;
+    portsToCheck.forEach(function(port) {
+      try {
+        var pids = execSync("lsof -ti :" + port, { encoding: "utf8" }).trim();
+        if (!pids) return;
+        pids.split("\n").forEach(function(pid) {
+          pid = pid.trim();
+          if (!pid || pid === String(process.pid)) return;
+          try {
+            var cmdline = execSync("ps -p " + pid + " -o comm=", { encoding: "utf8" }).trim();
+            if (cmdline.includes("CROCbox") || cmdline.includes("Electron") || cmdline.includes("electron")) {
+              console.log("[CROCbox] Orphan process found: PID " + pid + " (" + cmdline + ") on port " + port + " — sending SIGTERM");
+              try { process.kill(Number(pid), "SIGTERM"); } catch(e) {}
+              // Wait up to 5 seconds for graceful shutdown
+              var waited = 0;
+              while (waited < 5000) {
+                try { process.kill(Number(pid), 0); } catch(e) { break; }
+                execSync("sleep 0.5");
+                waited += 500;
+              }
+              // If still alive, SIGKILL
+              try {
+                process.kill(Number(pid), 0);
+                console.log("[CROCbox] Orphan PID " + pid + " still alive after 5s — sending SIGKILL");
+                try { process.kill(Number(pid), "SIGKILL"); } catch(e) {}
+              } catch(e) {
+                console.log("[CROCbox] Orphan PID " + pid + " terminated gracefully");
+              }
+            } else {
+              console.log("[CROCbox] Port " + port + " held by non-CROCbox process: " + cmdline + " (PID " + pid + ")");
+              dialog.showMessageBoxSync({
+                type: "warning",
+                title: "CROCbox — Port In Use",
+                message: "Port " + port + " is in use by " + cmdline + ".",
+                detail: "Please close that application and relaunch CROCbox.",
+                buttons: ["OK"]
+              });
+            }
+          } catch(e) {}
+        });
+      } catch(e) {
+        // lsof returns non-zero if no process found — that is fine
+      }
+    });
+    console.log("[CROCbox] Orphan process check complete");
+  })();
 
   // Step 0: Detect OpenClaw — system or bundled
   var useSystemOC = detectOpenClaw();
@@ -1880,7 +1516,7 @@ app.whenReady().then(async () => {
   }, 3000);
 
   startupComplete = true;
-  console.log('[CROCbox] ✓ CROCbox v1.0.0 ready');
+  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.1 ready');
   console.log('');
 });
 app.on('window-all-closed', async () => {
