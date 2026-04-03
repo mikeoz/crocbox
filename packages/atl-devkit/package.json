@@ -1,0 +1,24 @@
+{
+  "name": "@opnli/atl-devkit",
+  "version": "0.1.0",
+  "description": "Add human consent to any AI agent in 3 lines. The Agent Trust Layer DevKit.",
+  "main": "src/index.js",
+  "keywords": [
+    "ai-agent",
+    "trust",
+    "consent",
+    "agent-trust-layer",
+    "human-in-the-loop",
+    "opnli",
+    "card"
+  ],
+  "author": "Opn.li — Openly Personal Networks, Inc.",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/opnli/agent-trust-layer"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

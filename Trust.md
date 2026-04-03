@@ -49,11 +49,12 @@ the user's consent is requested.
 - Green Shield: Consent Before Execution [ACTIVE]
   The agent asks the user BEFORE performing an action.
   The action does not execute until the user approves.
-  Status: Future (requires platform support for pre-execution hooks)
+  Delivered in CROCbox v1.0.0-alpha.11 via before_tool_call hook injection.
 
-- Yellow Shield: Consent Before Delivery
+- Yellow Shield: Consent Before Delivery [AVAILABLE]
   The agent acts. CROCbox catches the result. The user reviews and decides.
   The result is not delivered until the user allows it.
+  Available as fallback when Green Shield cannot be activated.
 
 - Red Shield: Emergency Stop
   All agent actions are blocked. No results are delivered.

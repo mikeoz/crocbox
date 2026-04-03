@@ -470,7 +470,17 @@ function seedBigCROCWorkspace() {
   const wsPath = require("path").join(require("os").homedir(), ".openclaw", "workspace");
   try {
     var cur = fs.readFileSync(require("path").join(wsPath, "SOUL.md"), "utf8");
-    if (cur.includes("BigCROC")) { console.log("[CROCbox] BigCROC workspace already seeded"); return; }
+    if (cur.includes("BigCROC")) {
+      // Upgrade check: seed Trust.md if missing (added in alpha.12)
+      if (BIGCROC_WS.trust) {
+        var trustPath = require("path").join(wsPath, "Trust.md");
+        if (!fs.existsSync(trustPath)) {
+          fs.writeFileSync(trustPath, BIGCROC_WS.trust, "utf8");
+          console.log("[CROCbox] Trust.md seeded on upgrade");
+        }
+      }
+      console.log("[CROCbox] BigCROC workspace already seeded"); return;
+    }
   } catch(e) {}
   try { fs.mkdirSync(wsPath, { recursive: true }); } catch(e) {}
   ["SOUL.md","IDENTITY.md","USER.md","AGENTS.md"].forEach(function(f) {
@@ -480,6 +490,7 @@ function seedBigCROCWorkspace() {
   fs.writeFileSync(require("path").join(wsPath, "IDENTITY.md"), BIGCROC_WS.identity, "utf8");
   fs.writeFileSync(require("path").join(wsPath, "USER.md"), BIGCROC_WS.user, "utf8");
   fs.writeFileSync(require("path").join(wsPath, "AGENTS.md"), BIGCROC_WS.agents, "utf8");
+  if (BIGCROC_WS.trust) fs.writeFileSync(require("path").join(wsPath, "Trust.md"), BIGCROC_WS.trust, "utf8");
   console.log("[CROCbox] BigCROC workspace seeded");
 }
 // ── BigCROC Isolated Workspace Seeding (EXISTING_OC + UPGRADE) ──
@@ -489,13 +500,23 @@ function seedBigCROCWorkspaceIsolated() {
   var bigcrocPath = require("path").join(require("os").homedir(), ".openclaw", "agents", "bigcroc", "agent");
   try {
     var cur = fs.readFileSync(require("path").join(bigcrocPath, "SOUL.md"), "utf8");
-    if (cur.includes("BigCROC")) { console.log("[CROCbox] BigCROC isolated workspace already seeded"); return; }
+    if (cur.includes("BigCROC")) {
+      if (BIGCROC_WS.trust) {
+        var trustPath = require("path").join(bigcrocPath, "Trust.md");
+        if (!fs.existsSync(trustPath)) {
+          fs.writeFileSync(trustPath, BIGCROC_WS.trust, "utf8");
+          console.log("[CROCbox] Trust.md seeded on upgrade (isolated)");
+        }
+      }
+      console.log("[CROCbox] BigCROC isolated workspace already seeded"); return;
+    }
   } catch(e) {}
   try { fs.mkdirSync(bigcrocPath, { recursive: true }); } catch(e) {}
   fs.writeFileSync(require("path").join(bigcrocPath, "SOUL.md"), BIGCROC_WS.soul, "utf8");
   fs.writeFileSync(require("path").join(bigcrocPath, "IDENTITY.md"), BIGCROC_WS.identity, "utf8");
   fs.writeFileSync(require("path").join(bigcrocPath, "USER.md"), BIGCROC_WS.user, "utf8");
   fs.writeFileSync(require("path").join(bigcrocPath, "AGENTS.md"), BIGCROC_WS.agents, "utf8");
+  if (BIGCROC_WS.trust) fs.writeFileSync(require("path").join(bigcrocPath, "Trust.md"), BIGCROC_WS.trust, "utf8");
   console.log("[CROCbox] BigCROC isolated workspace seeded at: " + bigcrocPath);
 }
 // ── Existing User Welcome Screen ────────────────────────────────
