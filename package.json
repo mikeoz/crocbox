@@ -1,6 +1,6 @@
 {
   "name": "crocbox",
-  "version": "1.0.0-alpha.12",
+  "version": "1.0.0-beta.1",
   "description": "CROCbox — The Agent Trust Layer for OpenClaw",
   "main": "main.js",
   "scripts": {
