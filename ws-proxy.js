@@ -77,6 +77,7 @@ function setConsentIPC(callback) {
   console.log('[ws-proxy] Consent IPC callback registered');
 }
 
+let greenShieldActive = false;
 function setGreenShieldActive(active) {
   greenShieldActive = !!active;
   console.log('[ws-proxy] Green Shield active: ' + greenShieldActive + (greenShieldActive ? ' — Yellow Shield seq-gap detection DISABLED' : ''));
