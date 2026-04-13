@@ -171,6 +171,11 @@ function ensureOpenClawConfig() {
     config.agents.defaults.model.primary = 'anthropic/claude-sonnet-4-20250514';
     console.log('[CROCbox] Default model set to Claude Sonnet 4');
   }
+  // Remove unrecognized keys that crash newer Gateway versions
+  if (config.web) {
+    delete config.web;
+    console.log('[CROCbox] Removed legacy web.brave config (Gateway rejects unrecognized keys)');
+  }
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
   console.log('[CROCbox] OpenClaw config ensured: ' + configPath);
 
