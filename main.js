@@ -810,6 +810,94 @@ function openTrustActivity() {
   actWin.setMenuBarVisibility(false);
 }
 
+// ── keyCARD — API Key Management ────────────────────────────────
+function openKeyCARDWindow() {
+  const keyPath = path.join(process.env.HOME || '/tmp', '.openclaw', 'agents', 'main', 'agent', 'auth-profiles.json');
+  var currentKey = '';
+  var currentLabel = '';
+  try {
+    var profiles = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
+    var keys = Object.keys(profiles.profiles || {});
+    if (keys.length > 0) {
+      currentLabel = keys[0];
+      var entry = profiles.profiles[currentLabel];
+      var raw = entry.apiKey || entry.key || '';
+      currentKey = raw.length > 12 ? raw.substring(0, 8) + '...' + raw.substring(raw.length - 4) : '(set)';
+    }
+  } catch(e) {
+    currentKey = '(none found)';
+  }
+  // Write a minimal preload for the keyCARD window
+  var kcPreloadPath = path.join(require('os').tmpdir(), 'crocbox-keycard-preload.js');
+  fs.writeFileSync(kcPreloadPath, [
+    "const { contextBridge, ipcRenderer } = require('electron');",
+    "contextBridge.exposeInMainWorld('keycard', {",
+    "  saveKey: function(key, label) { return ipcRenderer.invoke('crocbox:save-keycard', key, label); }",
+    "});"
+  ].join('\n'), 'utf8');
+  var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>keyCARD</title>'
+    + '<style>'
+    + 'body{margin:0;padding:24px;background:#1a1a1a;color:#f0f0f0;font-family:-apple-system,sans-serif;}'
+    + 'h2{font-size:18px;font-weight:500;margin:0 0 4px 0;}'
+    + '.sub{color:#888;font-size:12px;margin-bottom:20px;}'
+    + '.field{margin-bottom:16px;}'
+    + 'label{display:block;font-size:12px;color:#999;margin-bottom:4px;font-weight:500;}'
+    + 'input{width:100%;padding:10px 12px;background:#111;border:1px solid #333;border-radius:6px;color:#f0f0f0;font-size:13px;font-family:monospace;box-sizing:border-box;}'
+    + 'input:focus{outline:none;border-color:#4CAF50;}'
+    + '.current{padding:10px 12px;background:#111;border:1px solid #333;border-radius:6px;color:#888;font-size:13px;font-family:monospace;}'
+    + '.btn-save{padding:10px 20px;border:none;border-radius:6px;font-size:14px;font-weight:500;cursor:pointer;width:100%;background:#2E7D32;color:#fff;margin-top:8px;}'
+    + '.btn-save:hover{background:#388E3C;}'
+    + '.btn-save:disabled{background:#333;color:#666;cursor:default;}'
+    + '.msg{text-align:center;font-size:12px;margin-top:12px;display:none;}'
+    + '.msg-ok{color:#4CAF50;} .msg-err{color:#EF4444;}'
+    + '.footer{text-align:center;color:#555;font-size:11px;margin-top:20px;}'
+    + '</style></head><body>'
+    + '<h2>keyCARD</h2>'
+    + '<div class="sub">Manage your API key for BigCROC</div>'
+    + '<div class="field"><label>Current Key</label><div class="current">' + (currentLabel ? currentLabel + ': ' : '') + currentKey + '</div></div>'
+    + '<div class="field"><label>New API Key</label><input type="text" id="newkey" placeholder="sk-ant-..." autocomplete="off" spellcheck="false"></div>'
+    + '<div class="field"><label>Label</label><input type="text" id="label" placeholder="anthropic:default" value="anthropic:default"></div>'
+    + '<button class="btn-save" id="savebtn" disabled>Save Key</button>'
+    + '<div class="msg msg-ok" id="msg-ok">Key saved. Restart CROCbox to use the new key.</div>'
+    + '<div class="msg msg-err" id="msg-err">Save failed. Check console for details.</div>'
+    + '<div class="footer">Stored in ~/.openclaw/agents/main/agent/auth-profiles.json</div>'
+    + '<script>'
+    + 'document.getElementById("newkey").addEventListener("input", function() {'
+    + '  document.getElementById("savebtn").disabled = this.value.trim().length < 10;'
+    + '  document.getElementById("msg-ok").style.display = "none";'
+    + '  document.getElementById("msg-err").style.display = "none";'
+    + '});'
+    + 'document.getElementById("savebtn").addEventListener("click", function() {'
+    + '  var key = document.getElementById("newkey").value.trim();'
+    + '  var lbl = document.getElementById("label").value.trim() || "anthropic:default";'
+    + '  document.getElementById("savebtn").disabled = true;'
+    + '  document.getElementById("savebtn").textContent = "Saving...";'
+    + '  window.keycard.saveKey(key, lbl).then(function(result) {'
+    + '    if (result && result.ok) {'
+    + '      document.getElementById("msg-ok").style.display = "block";'
+    + '      document.getElementById("savebtn").textContent = "Saved";'
+    + '      document.getElementById("newkey").value = "";'
+    + '    } else {'
+    + '      document.getElementById("msg-err").style.display = "block";'
+    + '      document.getElementById("savebtn").textContent = "Save Key";'
+    + '      document.getElementById("savebtn").disabled = false;'
+    + '    }'
+    + '  }).catch(function() {'
+    + '    document.getElementById("msg-err").style.display = "block";'
+    + '    document.getElementById("savebtn").textContent = "Save Key";'
+    + '    document.getElementById("savebtn").disabled = false;'
+    + '  });'
+    + '});'
+    + '</script></body></html>';
+  var kcWin = new BrowserWindow({
+    width: 420, height: 420, title: 'keyCARD — CROCbox',
+    backgroundColor: '#1a1a1a',
+    resizable: false,
+    webPreferences: { nodeIntegration: false, contextIsolation: true, preload: kcPreloadPath }
+  });
+  kcWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+  kcWin.setMenuBarVisibility(false);
+}
 // ── Shield Score + Trust Bar IPC ────────────────────────────────
 function computeAndInjectShield(win, catalogPayload) {
   var tools = parseCatalog(catalogPayload);
@@ -827,8 +915,8 @@ function computeAndInjectShield(win, catalogPayload) {
   // Send Trust Bar data via IPC — preload renders it
   if (win && !win.isDestroyed() && win.webContents) {
     var veIndicator = veStatus === 'enrolled' ? 'Trust Network' : 'Local Mode';
-    win.webContents.send('crocbox:trust-bar', { score: currentShieldScore, veLabel: veIndicator });
-    console.log('[CROCbox] Trust Bar data sent via IPC (color=' + currentShieldScore.color + ')');
+    win.webContents.send('crocbox:trust-bar', { score: currentShieldScore, veLabel: veIndicator, greenShield: greenShieldActive ? true : false });
+    console.log('[CROCbox] Trust Bar data sent via IPC (color=' + currentShieldScore.color + ', greenShield=' + (greenShieldActive ? 'true' : 'false') + ')');
   }
 }
 // ── Welcome Screen (first launch only) ─────────────────────────
@@ -1124,6 +1212,24 @@ function wireConsentIPC(win) {
       detail: 'The Agent Trust Layer for OpenClaw\n\nMy data + Your AI + My control = Living Intelligence\n\n© 2026 Openly Personal Networks, Inc. (Opn.li)\nhttps://opn.li'
     });
     return true;
+  });
+  ipcMain.handle('crocbox:save-keycard', function(_event, newKey, label) {
+    console.log('[CROCbox] keyCARD: saving key for label=' + label);
+    try {
+      var keyPath = path.join(process.env.HOME || '/tmp', '.openclaw', 'agents', 'main', 'agent', 'auth-profiles.json');
+      var profiles = { profiles: {} };
+      try { profiles = JSON.parse(fs.readFileSync(keyPath, 'utf8')); } catch(e) {}
+      if (!profiles.profiles) profiles.profiles = {};
+      profiles.profiles[label] = { type: 'api_key', provider: 'anthropic', apiKey: newKey, key: newKey };
+      var keyDir = path.dirname(keyPath);
+      if (!fs.existsSync(keyDir)) fs.mkdirSync(keyDir, { recursive: true });
+      fs.writeFileSync(keyPath, JSON.stringify(profiles, null, 2), 'utf8');
+      console.log('[CROCbox] keyCARD: key saved to ' + keyPath);
+      return { ok: true };
+    } catch(err) {
+      console.log('[CROCbox] keyCARD: save failed — ' + err.message);
+      return { ok: false, error: err.message };
+    }
   });
   console.log('[CROCbox] Controls panel IPC wired ✓');
 }
