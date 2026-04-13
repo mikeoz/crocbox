@@ -193,6 +193,42 @@ ipcRenderer.on('crocbox:green-consent-request', function(_event, data) {
   }
 });
 
+// ── Green Shield Timeout Visual Transition ──────────────────────
+ipcRenderer.on('crocbox:green-consent-timeout', function(_event, data) {
+  var requestId = data.requestId;
+  console.log('[CROCbox Preload] Green Shield timeout received: id=' + requestId);
+  var overlay = document.getElementById('crocbox-consent-overlay');
+  if (!overlay) {
+    console.log('[CROCbox Preload] Timeout: consent card already removed');
+    return;
+  }
+  // Gray out buttons
+  var buttons = overlay.querySelectorAll('.gs-btn');
+  buttons.forEach(function(btn) {
+    btn.disabled = true;
+    btn.style.opacity = '0.4';
+    btn.style.cursor = 'default';
+    btn.style.pointerEvents = 'none';
+  });
+  // Replace button row content with timeout message
+  var btnRow = overlay.querySelector('.gs-btn').parentElement;
+  btnRow.innerHTML = '<div style="text-align:center; width:100%"><div style="font-size:14px; color:#FFA726; font-weight:500; margin-bottom:6px">⏱ Timed out — blocked</div><div style="font-size:12px; color:#999">This action was not allowed.</div></div>';
+  // Change border to amber
+  overlay.style.borderLeft = '3px solid #FFA726';
+  // Auto-dismiss after 3 seconds
+  setTimeout(function() {
+    var el = document.getElementById('crocbox-consent-overlay');
+    if (el) {
+      el.style.transition = 'opacity 0.3s ease-out';
+      el.style.opacity = '0';
+      setTimeout(function() {
+        var el2 = document.getElementById('crocbox-consent-overlay');
+        if (el2) el2.remove();
+      }, 300);
+    }
+  }, 3000);
+});
+
 // ── A.12: Trust Bar IPC ────────────────────────────────────────
 //
 // main.js sends trust bar data via IPC. Preload renders it via DOM.

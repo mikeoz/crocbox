@@ -35,7 +35,7 @@ const fs = require('fs');
 // ── MITM Proxy Module ──────────────────────────────────────────
 const { startProxy, stopProxy, setConsentIPC, resolveConsent, setGreenShieldActive, PROXY_PORT } = require('./ws-proxy');
 const { computeShieldScore, getShieldDetailHTML, parseCatalog } = require('./shield-score');
-const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, setConsentCallback, GREEN_SHIELD_PORT } = require('./green-shield-gate');
+const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, setConsentCallback, setTimeoutCallback, GREEN_SHIELD_PORT } = require('./green-shield-gate');
 const { enroll: veEnroll, verify: veVerify, checkStatus: veCheckStatus } = require('./card_ve_client');
 // ── Configuration ──────────────────────────────────────────────
 const GATEWAY_PORT = 18789;
@@ -195,7 +195,8 @@ function startBundledGateway(bundledPaths) {
       stdio: ['ignore', 'pipe', 'pipe'],
       env: Object.assign({}, process.env, {
         HOME: process.env.HOME,
-        PATH: '/opt/homebrew/bin:/usr/local/bin:' + (process.env.PATH || '')
+        PATH: '/opt/homebrew/bin:/usr/local/bin:' + (process.env.PATH || ''),
+        BRAVE_API_KEY: 'BSADrBk5rw1zp2STg_hZhjc2WuPMTTp'
       })
     });
     bundledGatewayProcess = gw;
@@ -1452,6 +1453,13 @@ app.whenReady().then(async () => {
       mainWindow.webContents.send('crocbox:green-consent-request', consentData);
     } else {
       console.log('[CROCbox] Green Shield: window not available — tool will be blocked (fail-closed)');
+    }
+  });
+  // Handle Green Shield timeout notification to renderer
+  setTimeoutCallback(function(timeoutData) {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
+      console.log('[CROCbox] Green Shield: timeout notification to renderer (tool=' + timeoutData.toolName + ' id=' + timeoutData.requestId + ')');
+      mainWindow.webContents.send('crocbox:green-consent-timeout', timeoutData);
     }
   });
   // Handle Green Shield consent decisions from renderer (A.12)
