@@ -815,87 +815,193 @@ function openTrustActivity() {
   actWin.setMenuBarVisibility(false);
 }
 
-// ── keyCARD — API Key Management ────────────────────────────────
-function openKeyCARDWindow() {
-  const keyPath = path.join(process.env.HOME || '/tmp', '.openclaw', 'agents', 'main', 'agent', 'auth-profiles.json');
-  var currentKey = '';
-  var currentLabel = '';
+// ── keyCARD — Multi-Provider API Key Management ─────────────────
+function getConfiguredProviders() {
+  var configPath = path.join(process.env.HOME || '/tmp', '.openclaw', 'openclaw.json');
+  var keyPath = path.join(process.env.HOME || '/tmp', '.openclaw', 'agents', 'main', 'agent', 'auth-profiles.json');
+  var providers = [];
+  var activeModel = '';
+  try {
+    var config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    activeModel = (config.agents && config.agents.defaults && config.agents.defaults.model && config.agents.defaults.model.primary) || '';
+  } catch(e) {}
+  // Check Anthropic (built-in, key in auth-profiles)
   try {
     var profiles = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
-    var keys = Object.keys(profiles.profiles || {});
-    if (keys.length > 0) {
-      currentLabel = keys[0];
-      var entry = profiles.profiles[currentLabel];
-      var raw = entry.apiKey || entry.key || '';
-      currentKey = raw.length > 12 ? raw.substring(0, 8) + '...' + raw.substring(raw.length - 4) : '(set)';
+    var pkeys = Object.keys(profiles.profiles || {});
+    for (var i = 0; i < pkeys.length; i++) {
+      var pk = pkeys[i];
+      var entry = profiles.profiles[pk];
+      var raw = entry.apiKey || entry.key || entry.token || '';
+      var masked = raw.length > 12 ? raw.substring(0, 8) + '...' + raw.substring(raw.length - 4) : (raw ? '(set)' : '(empty)');
+      var prov = entry.provider || pk.split(':')[0] || 'unknown';
+      var isActive = activeModel.indexOf(prov) === 0 || (prov === 'anthropic' && activeModel.indexOf('anthropic/') === 0);
+      providers.push({ label: pk, provider: prov, maskedKey: masked, active: isActive });
     }
-  } catch(e) {
-    currentKey = '(none found)';
+  } catch(e) {}
+  return { providers: providers, activeModel: activeModel };
+}
+
+function openKeyCARDWindow() {
+  var info = getConfiguredProviders();
+  // Build provider rows HTML
+  var providerRowsHTML = '';
+  if (info.providers.length === 0) {
+    providerRowsHTML = '<div style="color:#666;font-size:12px;padding:8px 0;">No providers configured</div>';
+  } else {
+    info.providers.forEach(function(p) {
+      var dot = p.active ? '#4CAF50' : '#555';
+      var tag = p.active ? ' <span style="color:#4CAF50;font-size:10px;">ACTIVE</span>' : '';
+      providerRowsHTML += '<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #222;">'
+        + '<div style="width:8px;height:8px;border-radius:50%;background:' + dot + ';flex-shrink:0;"></div>'
+        + '<div style="flex:1;"><div style="font-size:12px;color:#ccc;">' + p.provider.charAt(0).toUpperCase() + p.provider.slice(1) + tag + '</div>'
+        + '<div style="font-size:11px;color:#666;font-family:monospace;">' + p.maskedKey + '</div></div></div>';
+    });
   }
+  var activeModelDisplay = info.activeModel || '(default)';
+
   // Write a minimal preload for the keyCARD window
   var kcPreloadPath = path.join(require('os').tmpdir(), 'crocbox-keycard-preload.js');
   fs.writeFileSync(kcPreloadPath, [
     "const { contextBridge, ipcRenderer } = require('electron');",
     "contextBridge.exposeInMainWorld('keycard', {",
-    "  saveKey: function(key, label) { return ipcRenderer.invoke('crocbox:save-keycard', key, label); }",
+    "  saveProvider: function(data) { return ipcRenderer.invoke('crocbox:save-provider', data); },",
+    "  switchProvider: function(model) { return ipcRenderer.invoke('crocbox:switch-model', model); }",
     "});"
   ].join('\n'), 'utf8');
+
+  var providerOptions = [
+    { name: 'Anthropic', id: 'anthropic', baseUrl: '', model: 'anthropic/claude-sonnet-4-20250514', keyPrefix: 'sk-ant-', hint: 'Built-in provider. No base URL needed.' },
+    { name: 'Neurometric', id: 'neurometric', baseUrl: 'https://api.neurometric.ai/v1', model: 'neurometric/clawpack', keyPrefix: '', hint: 'Free: 100M tokens/month. marketplace.neurometric.ai/clawpack' },
+    { name: 'OpenAI', id: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'openai/gpt-4o', keyPrefix: 'sk-', hint: 'Requires OpenAI API key.' },
+    { name: 'OpenRouter', id: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'openrouter/auto', keyPrefix: 'sk-or-', hint: 'Aggregates 200+ models. openrouter.ai' },
+    { name: 'Custom', id: 'custom', baseUrl: '', model: '', keyPrefix: '', hint: 'Any OpenAI-compatible endpoint.' }
+  ];
+
+  var optionsHTML = providerOptions.map(function(p) {
+    return '<option value="' + p.id + '">' + p.name + '</option>';
+  }).join('');
+
+  var providerDataJS = JSON.stringify(providerOptions);
+
   var html = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>keyCARD</title>'
     + '<style>'
-    + 'body{margin:0;padding:24px;background:#1a1a1a;color:#f0f0f0;font-family:-apple-system,sans-serif;}'
-    + 'h2{font-size:18px;font-weight:500;margin:0 0 4px 0;}'
-    + '.sub{color:#888;font-size:12px;margin-bottom:20px;}'
-    + '.field{margin-bottom:16px;}'
-    + 'label{display:block;font-size:12px;color:#999;margin-bottom:4px;font-weight:500;}'
-    + 'input{width:100%;padding:10px 12px;background:#111;border:1px solid #333;border-radius:6px;color:#f0f0f0;font-size:13px;font-family:monospace;box-sizing:border-box;}'
-    + 'input:focus{outline:none;border-color:#4CAF50;}'
-    + '.current{padding:10px 12px;background:#111;border:1px solid #333;border-radius:6px;color:#888;font-size:13px;font-family:monospace;}'
-    + '.btn-save{padding:10px 20px;border:none;border-radius:6px;font-size:14px;font-weight:500;cursor:pointer;width:100%;background:#2E7D32;color:#fff;margin-top:8px;}'
+    + 'body{margin:0;padding:20px;background:#1a1a1a;color:#f0f0f0;font-family:-apple-system,sans-serif;overflow-y:auto;}'
+    + 'h2{font-size:18px;font-weight:500;margin:0 0 2px 0;}'
+    + '.sub{color:#888;font-size:12px;margin-bottom:14px;}'
+    + '.section{margin-bottom:14px;}'
+    + '.section-title{font-size:11px;color:#666;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;font-weight:600;}'
+    + '.providers-list{background:#111;border:1px solid #333;border-radius:6px;padding:8px 12px;margin-bottom:6px;}'
+    + '.active-model{font-size:11px;color:#4CAF50;font-family:monospace;margin-bottom:14px;}'
+    + '.field{margin-bottom:10px;}'
+    + 'label{display:block;font-size:11px;color:#999;margin-bottom:3px;font-weight:500;}'
+    + 'select,input{width:100%;padding:8px 10px;background:#111;border:1px solid #333;border-radius:6px;color:#f0f0f0;font-size:13px;box-sizing:border-box;}'
+    + 'select{font-family:-apple-system,sans-serif;} input{font-family:monospace;}'
+    + 'select:focus,input:focus{outline:none;border-color:#4CAF50;}'
+    + '.hint{font-size:11px;color:#666;margin-top:3px;}'
+    + '.btn-row{display:flex;gap:8px;margin-top:12px;}'
+    + '.btn{flex:1;padding:10px 16px;border:none;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;}'
+    + '.btn-save{background:#2E7D32;color:#fff;}'
     + '.btn-save:hover{background:#388E3C;}'
     + '.btn-save:disabled{background:#333;color:#666;cursor:default;}'
-    + '.msg{text-align:center;font-size:12px;margin-top:12px;display:none;}'
-    + '.msg-ok{color:#4CAF50;} .msg-err{color:#EF4444;}'
-    + '.footer{text-align:center;color:#555;font-size:11px;margin-top:20px;}'
+    + '.btn-switch{background:#1565C0;color:#fff;}'
+    + '.btn-switch:hover{background:#1976D2;}'
+    + '.msg{text-align:center;font-size:12px;margin-top:8px;display:none;}'
+    + '.msg-ok{color:#4CAF50;} .msg-err{color:#EF4444;} .msg-info{color:#2196F3;}'
+    + '.footer{text-align:center;color:#555;font-size:10px;margin-top:14px;}'
+    + '.divider{border-top:1px solid #333;margin:14px 0;}'
     + '</style></head><body>'
     + '<h2>keyCARD</h2>'
-    + '<div class="sub">Manage your API key for BigCROC</div>'
-    + '<div class="field"><label>Current Key</label><div class="current">' + (currentLabel ? currentLabel + ': ' : '') + currentKey + '</div></div>'
-    + '<div class="field"><label>New API Key</label><input type="text" id="newkey" placeholder="sk-ant-..." autocomplete="off" spellcheck="false"></div>'
-    + '<div class="field"><label>Label</label><input type="text" id="label" placeholder="anthropic:default" value="anthropic:default"></div>'
-    + '<button class="btn-save" id="savebtn" disabled>Save Key</button>'
-    + '<div class="msg msg-ok" id="msg-ok">Key saved. Restart CROCbox to use the new key.</div>'
-    + '<div class="msg msg-err" id="msg-err">Save failed. Check console for details.</div>'
-    + '<div class="footer">Stored in ~/.openclaw/agents/main/agent/auth-profiles.json</div>'
+    + '<div class="sub">Manage AI providers for BigCROC</div>'
+
+    // Configured Providers section
+    + '<div class="section"><div class="section-title">Configured Providers</div>'
+    + '<div class="providers-list">' + providerRowsHTML + '</div>'
+    + '<div class="active-model">Active model: ' + activeModelDisplay + '</div></div>'
+
+    + '<div class="divider"></div>'
+
+    // Add / Update Provider section
+    + '<div class="section"><div class="section-title">Add or Update Provider</div>'
+    + '<div class="field"><label>Provider</label><select id="provider">' + optionsHTML + '</select></div>'
+    + '<div class="field"><label>API Key</label><input type="text" id="apikey" placeholder="Paste your API key" autocomplete="off" spellcheck="false"></div>'
+    + '<div class="field"><label>Base URL</label><input type="text" id="baseurl" placeholder="(built-in — no URL needed)"></div>'
+    + '<div class="field"><label>Model ID</label><input type="text" id="modelid" value="anthropic/claude-sonnet-4-20250514"></div>'
+    + '<div class="hint" id="provider-hint">Built-in provider. No base URL needed.</div>'
+    + '</div>'
+
+    + '<div class="btn-row">'
+    + '<button class="btn btn-save" id="savebtn" disabled>Save Provider</button>'
+    + '<button class="btn btn-switch" id="switchbtn" style="display:none;">Set as Active</button>'
+    + '</div>'
+    + '<div class="msg msg-ok" id="msg-ok">Provider saved. Restart CROCbox to apply.</div>'
+    + '<div class="msg msg-err" id="msg-err">Save failed. Check console.</div>'
+    + '<div class="msg msg-info" id="msg-switch">Active model switched. Restart CROCbox to apply.</div>'
+    + '<div class="footer">CROCbox is the trust layer, not the model layer.<br>Your consent gate works the same regardless of provider.</div>'
+
     + '<script>'
-    + 'document.getElementById("newkey").addEventListener("input", function() {'
-    + '  document.getElementById("savebtn").disabled = this.value.trim().length < 10;'
-    + '  document.getElementById("msg-ok").style.display = "none";'
-    + '  document.getElementById("msg-err").style.display = "none";'
-    + '});'
-    + 'document.getElementById("savebtn").addEventListener("click", function() {'
-    + '  var key = document.getElementById("newkey").value.trim();'
-    + '  var lbl = document.getElementById("label").value.trim() || "anthropic:default";'
-    + '  document.getElementById("savebtn").disabled = true;'
-    + '  document.getElementById("savebtn").textContent = "Saving...";'
-    + '  window.keycard.saveKey(key, lbl).then(function(result) {'
-    + '    if (result && result.ok) {'
-    + '      document.getElementById("msg-ok").style.display = "block";'
-    + '      document.getElementById("savebtn").textContent = "Saved";'
-    + '      document.getElementById("newkey").value = "";'
+    + 'var providers = ' + providerDataJS + ';'
+    + 'var sel = document.getElementById("provider");'
+    + 'var keyInput = document.getElementById("apikey");'
+    + 'var urlInput = document.getElementById("baseurl");'
+    + 'var modelInput = document.getElementById("modelid");'
+    + 'var hintEl = document.getElementById("provider-hint");'
+    + 'var saveBtn = document.getElementById("savebtn");'
+    + 'var switchBtn = document.getElementById("switchbtn");'
+
+    + 'function updateFields() {'
+    + '  var id = sel.value;'
+    + '  var p = providers.find(function(x){return x.id===id;});'
+    + '  if(p){'
+    + '    urlInput.value = p.baseUrl;'
+    + '    modelInput.value = p.model;'
+    + '    hintEl.textContent = p.hint;'
+    + '    urlInput.placeholder = p.baseUrl ? p.baseUrl : "(built-in — no URL needed)";'
+    + '    keyInput.placeholder = p.keyPrefix ? p.keyPrefix + "..." : "Paste your API key";'
+    + '  }'
+    + '  checkSave();'
+    + '}'
+    + 'function checkSave() {'
+    + '  var hasKey = keyInput.value.trim().length >= 8;'
+    + '  var hasModel = modelInput.value.trim().length > 0;'
+    + '  saveBtn.disabled = !(hasKey && hasModel);'
+    + '  document.getElementById("msg-ok").style.display="none";'
+    + '  document.getElementById("msg-err").style.display="none";'
+    + '  document.getElementById("msg-switch").style.display="none";'
+    + '}'
+
+    + 'sel.addEventListener("change", updateFields);'
+    + 'keyInput.addEventListener("input", checkSave);'
+    + 'modelInput.addEventListener("input", checkSave);'
+
+    + 'saveBtn.addEventListener("click", function(){'
+    + '  saveBtn.disabled=true; saveBtn.textContent="Saving...";'
+    + '  var data = {'
+    + '    provider: sel.value,'
+    + '    apiKey: keyInput.value.trim(),'
+    + '    baseUrl: urlInput.value.trim(),'
+    + '    model: modelInput.value.trim(),'
+    + '    setActive: true'
+    + '  };'
+    + '  window.keycard.saveProvider(data).then(function(r){'
+    + '    if(r&&r.ok){'
+    + '      document.getElementById("msg-ok").style.display="block";'
+    + '      saveBtn.textContent="Saved";'
+    + '      keyInput.value="";'
     + '    } else {'
-    + '      document.getElementById("msg-err").style.display = "block";'
-    + '      document.getElementById("savebtn").textContent = "Save Key";'
-    + '      document.getElementById("savebtn").disabled = false;'
+    + '      document.getElementById("msg-err").style.display="block";'
+    + '      saveBtn.textContent="Save Provider"; saveBtn.disabled=false;'
     + '    }'
-    + '  }).catch(function() {'
-    + '    document.getElementById("msg-err").style.display = "block";'
-    + '    document.getElementById("savebtn").textContent = "Save Key";'
-    + '    document.getElementById("savebtn").disabled = false;'
+    + '  }).catch(function(){'
+    + '    document.getElementById("msg-err").style.display="block";'
+    + '    saveBtn.textContent="Save Provider"; saveBtn.disabled=false;'
     + '  });'
     + '});'
+
     + '</script></body></html>';
+
   var kcWin = new BrowserWindow({
-    width: 420, height: 420, title: 'keyCARD — CROCbox',
+    width: 440, height: 620, title: 'keyCARD — CROCbox',
     backgroundColor: '#1a1a1a',
     resizable: false,
     webPreferences: { nodeIntegration: false, contextIsolation: true, preload: kcPreloadPath }
@@ -903,6 +1009,7 @@ function openKeyCARDWindow() {
   kcWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
   kcWin.setMenuBarVisibility(false);
 }
+
 // ── Shield Score + Trust Bar IPC ────────────────────────────────
 function computeAndInjectShield(win, catalogPayload) {
   var tools = parseCatalog(catalogPayload);
@@ -1218,24 +1325,149 @@ function wireConsentIPC(win) {
     });
     return true;
   });
-  ipcMain.handle('crocbox:save-keycard', function(_event, newKey, label) {
-    console.log('[CROCbox] keyCARD: saving key for label=' + label);
+  // ── Multi-provider save handler ──
+  ipcMain.handle('crocbox:save-provider', function(_event, data) {
+    console.log('[CROCbox] keyCARD: saving provider=' + data.provider + ' model=' + data.model);
     try {
       var keyPath = path.join(process.env.HOME || '/tmp', '.openclaw', 'agents', 'main', 'agent', 'auth-profiles.json');
+      var configPath = path.join(process.env.HOME || '/tmp', '.openclaw', 'openclaw.json');
+
+      // 1. Save API key to auth-profiles.json
       var profiles = { profiles: {} };
       try { profiles = JSON.parse(fs.readFileSync(keyPath, 'utf8')); } catch(e) {}
       if (!profiles.profiles) profiles.profiles = {};
-      profiles.profiles[label] = { type: 'api_key', provider: 'anthropic', apiKey: newKey, key: newKey };
+      var profileLabel = data.provider + ':default';
+      if (data.provider === 'anthropic') {
+        profiles.profiles[profileLabel] = { type: 'api_key', provider: 'anthropic', apiKey: data.apiKey, key: data.apiKey };
+      } else {
+        profiles.profiles[profileLabel] = { type: 'token', provider: data.provider, token: data.apiKey };
+      }
       var keyDir = path.dirname(keyPath);
       if (!fs.existsSync(keyDir)) fs.mkdirSync(keyDir, { recursive: true });
       fs.writeFileSync(keyPath, JSON.stringify(profiles, null, 2), 'utf8');
-      console.log('[CROCbox] keyCARD: key saved to ' + keyPath);
+      console.log('[CROCbox] keyCARD: auth-profiles updated for ' + profileLabel);
+
+      // 2. Write provider config to openclaw.json (non-Anthropic providers need models.providers entry)
+      var config = {};
+      try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch(e) {}
+      if (data.provider !== 'anthropic' && data.baseUrl) {
+        if (!config.models) config.models = { mode: 'merge', providers: {} };
+        if (!config.models.providers) config.models.providers = {};
+        config.models.providers[data.provider] = {
+          baseUrl: data.baseUrl,
+          apiKey: data.apiKey,
+          api: 'openai-completions',
+          models: [{
+            id: data.model,
+            name: data.provider.charAt(0).toUpperCase() + data.provider.slice(1) + ' (' + data.model.split('/').pop() + ')',
+            reasoning: false,
+            input: ['text'],
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            contextWindow: 32000,
+            maxTokens: 8000
+          }]
+        };
+        console.log('[CROCbox] keyCARD: models.providers.' + data.provider + ' written to openclaw.json');
+      }
+
+      // 3. Set as active model if requested
+      if (data.setActive && data.model) {
+        if (!config.agents) config.agents = { defaults: { model: {} } };
+        if (!config.agents.defaults) config.agents.defaults = { model: {} };
+        if (!config.agents.defaults.model) config.agents.defaults.model = {};
+        config.agents.defaults.model.primary = data.model;
+        console.log('[CROCbox] keyCARD: active model set to ' + data.model);
+      }
+
+      // 4. Update meta timestamp
+      if (!config.meta) config.meta = {};
+      config.meta.lastTouchedAt = new Date().toISOString();
+
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+      console.log('[CROCbox] keyCARD: openclaw.json updated');
+
       return { ok: true };
     } catch(err) {
       console.log('[CROCbox] keyCARD: save failed — ' + err.message);
       return { ok: false, error: err.message };
     }
   });
+
+  // ── Model switch handler (switch without re-entering key) ──
+  ipcMain.handle('crocbox:switch-model', function(_event, model) {
+    console.log('[CROCbox] Model switch: ' + model);
+    try {
+      var configPath = path.join(process.env.HOME || '/tmp', '.openclaw', 'openclaw.json');
+      var config = {};
+      try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch(e) {}
+      if (!config.agents) config.agents = { defaults: { model: {} } };
+      if (!config.agents.defaults) config.agents.defaults = { model: {} };
+      if (!config.agents.defaults.model) config.agents.defaults.model = {};
+      config.agents.defaults.model.primary = model;
+      if (!config.meta) config.meta = {};
+      config.meta.lastTouchedAt = new Date().toISOString();
+      fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+      console.log('[CROCbox] Model switch: active model set to ' + model);
+      return { ok: true };
+    } catch(err) {
+      console.log('[CROCbox] Model switch failed: ' + err.message);
+      return { ok: false, error: err.message };
+    }
+  });
+  // ── Switch Model Picker ──
+  ipcMain.handle('crocbox:switch-model-picker', function() {
+    var info = getConfiguredProviders();
+    if (info.providers.length === 0) {
+      require('electron').dialog.showMessageBoxSync({
+        type: 'info', title: 'Switch Model',
+        message: 'No providers configured.',
+        detail: 'Open keyCARD to add a provider first.'
+      });
+      return true;
+    }
+    var choices = info.providers.map(function(p) {
+      return p.provider.charAt(0).toUpperCase() + p.provider.slice(1) + (p.active ? ' (active)' : '');
+    });
+    var result = require('electron').dialog.showMessageBoxSync({
+      type: 'question', title: 'Switch Model',
+      message: 'Select active AI provider:',
+      detail: 'Current: ' + (info.activeModel || '(default)') + '\n\nRestart CROCbox after switching.',
+      buttons: choices.concat(['Cancel']),
+      defaultId: choices.length,
+      cancelId: choices.length
+    });
+    if (result < info.providers.length) {
+      var selected = info.providers[result];
+      // Look up the model for this provider from openclaw.json
+      var configPath = path.join(process.env.HOME || '/tmp', '.openclaw', 'openclaw.json');
+      var config = {};
+      try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch(e) {}
+      var model = '';
+      if (selected.provider === 'anthropic') {
+        model = 'anthropic/claude-sonnet-4-20250514';
+      } else if (config.models && config.models.providers && config.models.providers[selected.provider]) {
+        var pm = config.models.providers[selected.provider].models;
+        if (pm && pm.length > 0) model = pm[0].id;
+      }
+      if (model) {
+        if (!config.agents) config.agents = { defaults: { model: {} } };
+        if (!config.agents.defaults) config.agents.defaults = { model: {} };
+        if (!config.agents.defaults.model) config.agents.defaults.model = {};
+        config.agents.defaults.model.primary = model;
+        if (!config.meta) config.meta = {};
+        config.meta.lastTouchedAt = new Date().toISOString();
+        fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
+        console.log('[CROCbox] Model switched to ' + model + ' (provider: ' + selected.provider + ')');
+        require('electron').dialog.showMessageBoxSync({
+          type: 'info', title: 'Model Switched',
+          message: 'Active model: ' + model,
+          detail: 'Restart CROCbox to use the new provider.'
+        });
+      }
+    }
+    return true;
+  });
+
   console.log('[CROCbox] Controls panel IPC wired ✓');
 }
 // ── Application lifecycle ──────────────────────────────────────

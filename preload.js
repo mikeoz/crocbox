@@ -316,7 +316,8 @@ ipcRenderer.on('crocbox:trust-bar', function(_event, data) {
         { id: 'ctrl-keycard', icon: '\uD83D\uDD11', label: 'keyCARD', ipc: 'crocbox:open-keycard' },
         { id: 'ctrl-activity', icon: '\uD83D\uDCCB', label: 'Trust Activity', ipc: 'crocbox:trust-activity' },
         { id: 'ctrl-trust-model', icon: '\uD83D\uDEE1', label: 'Trust Model', ipc: 'crocbox:open-trust-model' },
-        { id: 'ctrl-about', icon: '\u2139\uFE0F', label: 'About CROCbox', ipc: 'crocbox:open-about' }
+        { id: 'ctrl-about', icon: '\u2139\uFE0F', label: 'About CROCbox', ipc: 'crocbox:open-about' },
+        { id: 'ctrl-model', icon: '\uD83E\uDD16', label: 'Switch Model', ipc: 'crocbox:switch-model-picker' }
       ];
       menuItems.forEach(function(item) {
         var row = document.createElement('div');
