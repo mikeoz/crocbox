@@ -237,8 +237,8 @@ ipcRenderer.on('crocbox:green-consent-timeout', function(_event, data) {
 ipcRenderer.on('crocbox:trust-bar', function(_event, data) {
   var score = data.score || {};
   var veLabel = data.veLabel || 'Local Mode';
-  console.log('[CROCbox Preload] Trust Bar data received: color=' + (score.color || 'unknown'));
-
+  var isGreen = data.greenShield ? true : false;
+  console.log('[CROCbox Preload] Trust Bar data received: greenShield=' + isGreen);
   function renderTrustBar() {
     // Remove existing trust bar
     var old = document.getElementById('crocbox-trust-bar');
@@ -252,14 +252,14 @@ ipcRenderer.on('crocbox:trust-bar', function(_event, data) {
     if (cb) cb.style.display = 'none';
 
     // Determine colors
-    var colorHex = score.color === 'green' ? '#4CAF50' : score.color === 'yellow' ? '#d4a017' : '#e53935';
-    var shieldLabel = score.color ? score.color.toUpperCase() : 'UNKNOWN';
+    var colorHex = isGreen ? '#4CAF50' : '#d4a017';
+    var shieldLabel = isGreen ? 'GREEN' : 'YELLOW';
     var veColor = veLabel.includes('Trust Network') ? '#4CAF50' : '#d4a017';
     // SVG colors
-    var svgOuter = score.color === 'green' ? '#1B5E20' : '#58585C';
-    var svgStroke = score.color === 'green' ? '#2E7D32' : '#707074';
-    var svgMid = score.color === 'green' ? '#2E7D32' : '#CA8A04';
-    var svgInner = score.color === 'green' ? '#4CAF50' : '#EAB308';
+    var svgOuter = isGreen ? '#1B5E20' : '#58585C';
+    var svgStroke = isGreen ? '#2E7D32' : '#707074';
+    var svgMid = isGreen ? '#2E7D32' : '#CA8A04';
+    var svgInner = isGreen ? '#4CAF50' : '#EAB308';
 
     // ── Create Trust Bar ──
     var bar = document.createElement('div');
@@ -313,10 +313,10 @@ ipcRenderer.on('crocbox:trust-bar', function(_event, data) {
       ctrlPanel.id = 'crocbox-controls-panel';
       ctrlPanel.style.cssText = 'position:fixed;top:38px;left:50%;transform:translateX(-50%);z-index:999998;background:#1a1a1a;border:1px solid #333;border-radius:8px;max-width:320px;width:80%;display:none;box-shadow:0 8px 32px rgba(0,0,0,0.5);font-family:-apple-system,sans-serif;color:#f0f0f0;padding:12px 0;';
       var menuItems = [
-        { id: 'ctrl-keycard', icon: '\uD83D\uDD11', label: 'keyCARD', fn: 'openKeyCARD' },
-        { id: 'ctrl-activity', icon: '\uD83D\uDCCB', label: 'Trust Activity', fn: 'openTrustActivity' },
-        { id: 'ctrl-trust-model', icon: '\uD83D\uDEE1', label: 'Trust Model', fn: 'openTrustModel' },
-        { id: 'ctrl-about', icon: '\u2139\uFE0F', label: 'About CROCbox', fn: 'openAbout' }
+        { id: 'ctrl-keycard', icon: '\uD83D\uDD11', label: 'keyCARD', ipc: 'crocbox:open-keycard' },
+        { id: 'ctrl-activity', icon: '\uD83D\uDCCB', label: 'Trust Activity', ipc: 'crocbox:trust-activity' },
+        { id: 'ctrl-trust-model', icon: '\uD83D\uDEE1', label: 'Trust Model', ipc: 'crocbox:open-trust-model' },
+        { id: 'ctrl-about', icon: '\u2139\uFE0F', label: 'About CROCbox', ipc: 'crocbox:open-about' }
       ];
       menuItems.forEach(function(item) {
         var row = document.createElement('div');
@@ -327,7 +327,8 @@ ipcRenderer.on('crocbox:trust-bar', function(_event, data) {
         row.addEventListener('mouseout', function() { row.style.background = 'transparent'; });
         row.addEventListener('click', function() {
           ctrlPanel.style.display = 'none';
-          if (window.crocbox && window.crocbox[item.fn]) window.crocbox[item.fn]();
+          console.log('[CROCbox] Controls: clicked ' + item.label + ' -> ' + item.ipc);
+          ipcRenderer.invoke(item.ipc);
         });
         ctrlPanel.appendChild(row);
       });
