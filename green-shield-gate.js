@@ -35,6 +35,7 @@ const pendingGreenConsents = new Map();
 
 // Callback to notify main.js of consent requests (set via setConsentCallback)
 let consentCallback = null;
+let timeoutCallback = null;
 
 // ── Audit Logger ───────────────────────────────────────────────
 const AUDIT_LOG_PATH = path.join(
@@ -135,6 +136,9 @@ function startGreenShieldServer() {
               if (pendingGreenConsents.has(requestId)) {
                 pendingGreenConsents.delete(requestId);
                 writeGreenShieldAudit(requestId, toolName, 'timeout', toolParams);
+                if (typeof timeoutCallback === 'function') {
+                  timeoutCallback({ requestId: requestId, toolName: toolName });
+                }
                 resolve({ allowed: false, reason: 'consent-timeout' });
               }
             }, CONSENT_TIMEOUT_MS);
@@ -232,11 +236,17 @@ function setConsentCallback(cb) {
   console.log('[GreenShield] Consent callback registered');
 }
 
+function setTimeoutCallback(cb) {
+  timeoutCallback = cb;
+  console.log('[GreenShield] Timeout callback registered');
+}
+
 module.exports = {
   startGreenShieldServer,
   stopGreenShieldServer,
   resolveGreenConsent,
   setConsentCallback,
+  setTimeoutCallback,
   GREEN_SHIELD_PORT,
   pendingGreenConsents
 };
