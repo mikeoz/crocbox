@@ -700,7 +700,10 @@ async function completeActivation(win, accountId, email, apiKey, provider) {
     var profiles = { version: 1, profiles: {}, usageStats: {} };
     try { profiles = JSON.parse(fs.readFileSync(authPath, 'utf8')); } catch(e) {}
     var label = provider + ':default';
-    profiles.profiles[label] = { type: 'api_key', provider: provider, apiKey: apiKey };
+    profiles.profiles[label] = { type: 'api_key', provider: provider, apiKey: apiKey, key: apiKey };
+    // Fix 3: Bake Neurometric free-tier profile alongside activation-delivered key.
+    // See completeActivation schema note: Anthropic uses type:'api_key'+apiKey, Neurometric uses type:'token'+token.
+    profiles.profiles['neurometric:default'] = { type: 'token', provider: 'neurometric', token: 'mk_live_qcr1h31RTWZUZrhl5GfrbFSFXSxgQ7ec' };
     fs.writeFileSync(authPath, JSON.stringify(profiles, null, 2), 'utf8');
     console.log('[CROCbox] API key delivered via activation: ' + label);
     // Audit log
@@ -716,6 +719,15 @@ async function completeActivation(win, accountId, email, apiKey, provider) {
       entry.hash = require('crypto').createHash('sha256').update(hashData).digest('hex');
       fs.appendFileSync(auditPath, JSON.stringify(entry) + '\n');
     } catch(ae) {}
+    // Fix 3: Audit entry for Neurometric bake (hash-chains from Anthropic entry above).
+    try {
+      var neuroEntry = { timestamp: new Date().toISOString(), action: 'keycard-activation', target: 'neurometric:default', result: 'stored', reason: 'neurometric-bake', detail: 'Neurometric free-tier key baked during CROCbox activation', shield: 'yellow' };
+      var neuroPrev = entry.hash || 'genesis';
+      var neuroHashData = JSON.stringify(neuroEntry) + neuroPrev;
+      neuroEntry.prev_hash = neuroPrev;
+      neuroEntry.hash = require('crypto').createHash('sha256').update(neuroHashData).digest('hex');
+      fs.appendFileSync(auditPath, JSON.stringify(neuroEntry) + n);
+    } catch(ae2) {}
   } else {
     console.log('[CROCbox] WARNING: No API key in activation callback — BigCROC will not be able to chat');
   }
@@ -1320,7 +1332,7 @@ function wireConsentIPC(win) {
     require('electron').dialog.showMessageBoxSync({
       type: 'info',
       title: 'About CROCbox',
-      message: 'CROCbox v1.0.0-beta.1',
+      message: 'CROCbox v1.0.0-beta.3',
       detail: 'The Agent Trust Layer for OpenClaw\n\nMy data + Your AI + My control = Living Intelligence\n\n© 2026 Openly Personal Networks, Inc. (Opn.li)\nhttps://opn.li'
     });
     return true;
@@ -1485,7 +1497,7 @@ let veAgentId = null; // VE agent ID (from enrollment)
 app.whenReady().then(async () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║   CROCbox v1.0.0-beta.1 — Green Shield       ║');
+  console.log('  ║   CROCbox v1.0.0-beta.3 — Green Shield       ║');
   console.log('  ║   The Agent Trust Layer for OpenClaw  ║');
   console.log('  ║   Shield Scoring Engine Edition       ║');
   console.log('  ╚══════════════════════════════════════╝');
@@ -1599,6 +1611,14 @@ app.whenReady().then(async () => {
       console.log('[CROCbox]   Model: ' + (existingConfig.agents?.defaults?.model?.primary || 'default') + ' (not modified)');
     } catch (e) {
       console.log('[CROCbox]   Could not read existing config: ' + e.message);
+    // Fix 4: Stale state protection - check auth-profiles.json exists
+    var authProfilesPath = require('path').join(process.env.HOME || '/tmp', '.openclaw', 'agents', 'main', 'agent', 'auth-profiles.json');
+    if (!fs.existsSync(authProfilesPath)) {
+      console.log('[CROCbox] WARNING: launched marker exists but auth-profiles.json missing. Re-triggering activation flow.');
+      fs.unlinkSync(require('path').join(process.env.HOME || '/tmp', '.crocbox', 'launched'));
+      installScenario = 'NHB';
+      console.log('[CROCbox] Classification changed to NHB - activation required');
+    }
     }
   }
   console.log('[CROCbox] OpenClaw: ' + (useSystemOC ? 'system' : 'bundled') + ' \u2713');
@@ -1867,7 +1887,7 @@ app.whenReady().then(async () => {
   }, 3000);
 
   startupComplete = true;
-  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.1 ready');
+  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.3 ready');
   console.log('');
 });
 app.on('window-all-closed', async () => {
