@@ -24,6 +24,7 @@ const http = require('http');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
+const agentSync = require('./agent-sync');
 
 // ── Configuration ──────────────────────────────────────────────
 const GREEN_SHIELD_PORT = 18793;
@@ -85,6 +86,14 @@ function writeGreenShieldAudit(requestId, toolName, decision, params) {
       fs.mkdirSync(logDir, { recursive: true });
     }
     fs.appendFileSync(AUDIT_LOG_PATH, JSON.stringify(entry) + '\n');
+    // Agent Sync hook: fire-and-forget forward of the consent decision
+    // to opn.li Supabase. Runs AFTER the local audit write. Wrapped in
+    // its own try/catch so any failure here cannot escape to the outer
+    // catch and be misreported as a local-audit failure. INV-5 is not
+    // affected: the consent decision has already been resolved and
+    // locally recorded before this line executes.
+    try { if (agentSync && typeof agentSync.push === 'function') agentSync.push(entry); }
+    catch (e) { console.warn('[GreenShield] agent-sync push error:', e.message); }
     console.log('[GreenShield] Audit: ' + decision + ' tool=' + toolName + ' id=' + requestId);
   } catch (err) {
     console.error('[GreenShield] Audit write failed:', err.message);

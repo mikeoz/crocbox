@@ -69,6 +69,7 @@
       "card_ve_client.js",
       "bigcroc-workspace.js",
       "green-shield-gate.js",
+      "agent-sync.js",
       "package.json",
       "Trust.md",
       "node_modules/**/*"
