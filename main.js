@@ -36,6 +36,7 @@ const fs = require('fs');
 const { startProxy, stopProxy, setConsentIPC, resolveConsent, setGreenShieldActive, PROXY_PORT } = require('./ws-proxy');
 const { computeShieldScore, getShieldDetailHTML, parseCatalog } = require('./shield-score');
 const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, setConsentCallback, setTimeoutCallback, GREEN_SHIELD_PORT } = require('./green-shield-gate');
+const agentSync = require('./agent-sync');
 const { enroll: veEnroll, verify: veVerify, checkStatus: veCheckStatus } = require('./card_ve_client');
 // ── Configuration ──────────────────────────────────────────────
 const GATEWAY_PORT = 18789;
@@ -1810,6 +1811,20 @@ app.whenReady().then(async () => {
   wireConsentIPC(mainWindow);
   // Step 7b: Start Green Shield consent server (CBE — Consent Before Execution)
   startGreenShieldServer();
+  // Step 7c: Initialize Agent Sync (forwards consent decisions to opn.li
+  // Supabase). Runs AFTER the gate is up and BEFORE any consent card can
+  // fire. Disables itself cleanly if account.json is absent (Local Mode).
+  try {
+    agentSync.init({
+      agent_name: 'BigCROC',
+      model: 'anthropic/claude-sonnet-4-20250514',
+      shield_level: 'green',
+      skill_count: 0
+    });
+    console.log('[CROCbox] Agent Sync initialized (enabled=' + agentSync.isEnabled() + ')');
+  } catch (e) {
+    console.warn('[CROCbox] Agent Sync init error (non-fatal):', e.message);
+  }
   setConsentCallback(function(consentData) {
     if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
       console.log('[CROCbox] Green Shield: forwarding consent request to renderer via IPC (tool=' + consentData.toolName + ')');
