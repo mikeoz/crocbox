@@ -25,7 +25,7 @@ const os = require('os');
 const { URL } = require('url');
 
 // ── Configuration ─────────────────────────────────────────────────
-const SUPABASE_URL = 'https://ehsnrqjyvtluwkmizsyy.supabase.co';
+const SUPABASE_URL = 'https://qmpmxrtcysrngfjotkcq.supabase.co';
 const ACCOUNT_JSON_PATH = path.join(os.homedir(), '.crocbox', 'account.json');
 const QUEUE_PATH = path.join(os.homedir(), 'opnli', 'crocbox', 'logs', 'agent-sync-queue.jsonl');
 const QUEUE_CAP = 1000;
