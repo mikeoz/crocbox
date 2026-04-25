@@ -54,6 +54,7 @@ const { computeShieldScore, getShieldDetailHTML, parseCatalog } = require('./shi
 const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, setConsentCallback, setTimeoutCallback, GREEN_SHIELD_PORT } = require('./green-shield-gate');
 const agentSync = require('./agent-sync');
 process.env.CROCBOX_ENV_PATH = (function() { var p = require("path"); var fs = require("fs"); var appSupport = p.join(process.env.HOME || "/tmp", "Library", "Application Support", "CROCbox", ".env"); var dev = p.join(process.env.HOME || "/tmp", "opnli", "crocbox", ".env"); return fs.existsSync(appSupport) ? appSupport : dev; })();
+if (!process.env.VE_ENDPOINT) { process.env.VE_ENDPOINT = 'https://ve-staging.opn.li'; } // Beta fallback — see GT-17 in SessionCloseout
 const { enroll: veEnroll, verify: veVerify, checkStatus: veCheckStatus } = require('./card_ve_client');
 // ── Configuration ──────────────────────────────────────────────
 const GATEWAY_PORT = 18789;
