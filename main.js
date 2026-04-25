@@ -53,6 +53,7 @@ const { startProxy, stopProxy, setConsentIPC, resolveConsent, setGreenShieldActi
 const { computeShieldScore, getShieldDetailHTML, parseCatalog } = require('./shield-score');
 const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, setConsentCallback, setTimeoutCallback, GREEN_SHIELD_PORT } = require('./green-shield-gate');
 const agentSync = require('./agent-sync');
+process.env.CROCBOX_ENV_PATH = (function() { var p = require("path"); var fs = require("fs"); var appSupport = p.join(process.env.HOME || "/tmp", "Library", "Application Support", "CROCbox", ".env"); var dev = p.join(process.env.HOME || "/tmp", "opnli", "crocbox", ".env"); return fs.existsSync(appSupport) ? appSupport : dev; })();
 const { enroll: veEnroll, verify: veVerify, checkStatus: veCheckStatus } = require('./card_ve_client');
 // ── Configuration ──────────────────────────────────────────────
 const GATEWAY_PORT = 18789;
@@ -636,25 +637,90 @@ function injectTrustNetworkIndicator(win, status) {
 }
 
 // ── VE Startup Check ───────────────────────────────────────────
+function writeVeAuditEntry(agentId) {
+  try {
+    var auditDir = require('path').join(process.env.HOME || '/tmp', 'opnli', 'crocbox', 'logs');
+    if (!fs.existsSync(auditDir)) fs.mkdirSync(auditDir, { recursive: true });
+    var auditPath = require('path').join(auditDir, 'crocbox-audit.jsonl');
+    var prev = 'genesis';
+    try { var lines = fs.readFileSync(auditPath, 'utf8').trim().split('\n'); var last = JSON.parse(lines[lines.length - 1]); prev = last.hash || 'genesis'; } catch(e) {}
+    var entry = { timestamp: new Date().toISOString(), action: 've-validation', target: 've-staging.opn.li', result: 'verified', reason: 've-status-check', detail: 'VE_AGENT_ID=' + agentId, shield: 'green' };
+    var hashData = JSON.stringify(entry) + prev;
+    entry.prev_hash = prev;
+    entry.hash = require('crypto').createHash('sha256').update(hashData).digest('hex');
+    fs.appendFileSync(auditPath, JSON.stringify(entry) + '\n');
+    console.log('[CROCbox] VE validation audit entry written (hash=' + entry.hash.substring(0, 12) + '...)');
+  } catch(e) {
+    console.warn('[CROCbox] Failed to write VE audit entry: ' + e.message);
+  }
+}
+
 async function checkVeEnrollment() {
   try {
-    var result = await veCheckStatus();
-    if (result.status === 'active') {
-      veStatus = 'enrolled';
-      veAgentId = result.agent_id;
-      console.log('[CROCbox] VE: Agent enrolled and active (id=' + result.agent_id + ')');
-      return 'enrolled';
-    } else if (result.status === 'not_enrolled') {
-      console.log('[CROCbox] VE: Agent not enrolled — running in local mode');
-      veStatus = 'local';
-      return 'local';
-    } else {
-      console.log('[CROCbox] VE: Status check returned: ' + result.status + ' — ' + (result.reason || ''));
-      veStatus = 'local';
-      return 'local';
+    // If we have a saved agent_id, verify the VE still recognizes us
+    if (veAgentId) {
+      console.log('[CROCbox] VE: Checking enrollment for agent_id=' + veAgentId);
+      try {
+        var cardId = null;
+        try {
+          var envContent = fs.readFileSync(process.env.CROCBOX_ENV_PATH || '', 'utf8');
+          var m = envContent.match(/VE_CARD_ID=(.+)/);
+          if (m) cardId = m[1].trim();
+        } catch(e) {}
+        if (!cardId) cardId = 'card-unknown';
+        var sid = 'startup-' + Date.now();
+        var verifyResult = await veVerify('web_search', cardId, sid);
+        if (verifyResult && (verifyResult.decision === 'approved' || verifyResult.decision === 'allow')) {
+          veStatus = 'enrolled';
+          console.log('[CROCbox] VE: Agent verified and active (id=' + veAgentId + ')');
+          writeVeAuditEntry(veAgentId);
+          return 'enrolled';
+        } else if (verifyResult && verifyResult.decision === 'denied' && verifyResult.reason && verifyResult.reason.includes('not recognized')) {
+          console.log('[CROCbox] VE: Agent not recognized — will attempt re-enrollment');
+          // Fall through to enrollment below
+        } else {
+          // VE responded but denied for another reason (e.g., operation not allowed)
+          // Agent IS enrolled, just this operation was denied — that's still enrolled
+          veStatus = 'enrolled';
+          console.log('[CROCbox] VE: Agent enrolled (verify returned: ' + (verifyResult.decision || 'unknown') + ')');
+          writeVeAuditEntry(veAgentId);
+          return 'enrolled';
+        }
+      } catch (verifyErr) {
+        console.log('[CROCbox] VE: Verify check failed — ' + verifyErr.message);
+        // Network error — VE unreachable, stay local
+        veStatus = 'local';
+        return 'local';
+      }
     }
+    // No saved agent_id, or agent not recognized — attempt enrollment
+    console.log('[CROCbox] VE: Attempting enrollment...');
+    try {
+      var acctPath = require('path').join(require('os').homedir(), '.crocbox', 'account.json');
+      var acct = JSON.parse(fs.readFileSync(acctPath, 'utf8'));
+      var enrollId = acct.member_id || acct.account_id;
+      if (enrollId) {
+        var enrollResult = await veEnroll(enrollId, rentalSkiLevel);
+        if (enrollResult && enrollResult.agent_id) {
+          veStatus = 'enrolled';
+          veAgentId = enrollResult.agent_id;
+          acct.agent_id = enrollResult.agent_id;
+          fs.writeFileSync(acctPath, JSON.stringify(acct, null, 2), 'utf8');
+          console.log('[CROCbox] VE: Enrollment successful (agent_id=' + enrollResult.agent_id + ')');
+          writeVeAuditEntry(enrollResult.agent_id);
+          return 'enrolled';
+        }
+      } else {
+        console.log('[CROCbox] VE: No member_id in account.json — cannot enroll');
+      }
+    } catch (enrollErr) {
+      console.log('[CROCbox] VE: Enrollment failed — ' + enrollErr.message);
+    }
+    console.log('[CROCbox] VE: Running in local mode');
+    veStatus = 'local';
+    return 'local';
   } catch (err) {
-    console.log('[CROCbox] VE: Status check failed — ' + err.message + ' — running in local mode');
+    console.log('[CROCbox] VE: Startup check failed — ' + err.message + ' — running in local mode');
     veStatus = 'local';
     return 'local';
   }
@@ -1353,7 +1419,7 @@ function wireConsentIPC(win) {
     require('electron').dialog.showMessageBoxSync({
       type: 'info',
       title: 'About CROCbox',
-      message: 'CROCbox v1.0.0-beta.9',
+      message: 'CROCbox v1.0.0-beta.10',
       detail: 'The Agent Trust Layer for OpenClaw\n\nMy data + Your AI + My control = Living Intelligence\n\n© 2026 Openly Personal Networks, Inc. (Opn.li)\nhttps://opn.li'
     });
     return true;
@@ -1518,7 +1584,7 @@ let veAgentId = null; // VE agent ID (from enrollment)
 app.whenReady().then(async () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║   CROCbox v1.0.0-beta.9 — Green Shield       ║');
+  console.log('  ║   CROCbox v1.0.0-beta.10 — Green Shield       ║');
   console.log('  ║   The Agent Trust Layer for OpenClaw  ║');
   console.log('  ║   Shield Scoring Engine Edition       ║');
   console.log('  ╚══════════════════════════════════════╝');
@@ -1928,7 +1994,7 @@ app.whenReady().then(async () => {
   }, 3000);
 
   startupComplete = true;
-  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.9 ready');
+  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.10 ready');
   console.log('');
 });
 app.on('window-all-closed', async () => {
