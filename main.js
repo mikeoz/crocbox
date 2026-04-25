@@ -1353,7 +1353,7 @@ function wireConsentIPC(win) {
     require('electron').dialog.showMessageBoxSync({
       type: 'info',
       title: 'About CROCbox',
-      message: 'CROCbox v1.0.0-beta.8',
+      message: 'CROCbox v1.0.0-beta.9',
       detail: 'The Agent Trust Layer for OpenClaw\n\nMy data + Your AI + My control = Living Intelligence\n\n© 2026 Openly Personal Networks, Inc. (Opn.li)\nhttps://opn.li'
     });
     return true;
@@ -1518,7 +1518,7 @@ let veAgentId = null; // VE agent ID (from enrollment)
 app.whenReady().then(async () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║   CROCbox v1.0.0-beta.8 — Green Shield       ║');
+  console.log('  ║   CROCbox v1.0.0-beta.9 — Green Shield       ║');
   console.log('  ║   The Agent Trust Layer for OpenClaw  ║');
   console.log('  ║   Shield Scoring Engine Edition       ║');
   console.log('  ╚══════════════════════════════════════╝');
@@ -1803,6 +1803,8 @@ app.whenReady().then(async () => {
         }, 300000);
       });
       console.log('[CROCbox] Account activation completed ✓');
+      // Re-initialize Agent Sync now that account.json has auth credentials
+      try { agentSync.init({ agent_name: 'BigCROC', model: 'anthropic/claude-sonnet-4-20250514', shield_level: 'green', skill_count: 0 }); console.log('[CROCbox] Agent Sync re-initialized after activation (enabled=' + agentSync.isEnabled() + ')'); } catch(e) { console.warn('[CROCbox] Agent Sync re-init failed:', e.message); }
       // B4: Restart Gateway so it reads the new auth-profiles.json
       if (bundledGatewayProcess) {
         console.log('[CROCbox] Restarting Gateway to load API key...');
@@ -1926,7 +1928,7 @@ app.whenReady().then(async () => {
   }, 3000);
 
   startupComplete = true;
-  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.8 ready');
+  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.9 ready');
   console.log('');
 });
 app.on('window-all-closed', async () => {
