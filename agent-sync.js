@@ -140,7 +140,7 @@ function mapAuditToConsentDecision(entry) {
     member_id: account.member_id,
     source_product: 'crocbox',
     entity_name: entry.target || 'unknown-tool',
-    entity_type: 'ai_agent_tool',
+    entity_type: 'ai_agent',
     decision: decisionMap[entry.result] || 'revoked',
     card_context: {
       entity: agentMeta.agent_name,
