@@ -33,6 +33,22 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs');
 // ── MITM Proxy Module ──────────────────────────────────────────
+
+// ── File-based logger (captures console output to disk) ────────
+const LOG_DIR = require('path').join(process.env.HOME || '/tmp', 'opnli', 'crocbox', 'logs');
+try { if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true }); } catch(e) {}
+const LOG_PATH = require('path').join(LOG_DIR, 'electron.log');
+const logStream = fs.createWriteStream(LOG_PATH, { flags: 'a' });
+const origLog = console.log;
+const origWarn = console.warn;
+const origError = console.error;
+function stampedWrite(prefix, args) {
+  const line = new Date().toISOString() + ' ' + prefix + ' ' + Array.from(args).map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ');
+  try { logStream.write(line + '\n'); } catch(e) {}
+}
+console.log = function() { origLog.apply(console, arguments); stampedWrite('LOG', arguments); };
+console.warn = function() { origWarn.apply(console, arguments); stampedWrite('WARN', arguments); };
+console.error = function() { origError.apply(console, arguments); stampedWrite('ERR', arguments); };
 const { startProxy, stopProxy, setConsentIPC, resolveConsent, setGreenShieldActive, PROXY_PORT } = require('./ws-proxy');
 const { computeShieldScore, getShieldDetailHTML, parseCatalog } = require('./shield-score');
 const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, setConsentCallback, setTimeoutCallback, GREEN_SHIELD_PORT } = require('./green-shield-gate');
@@ -656,12 +672,16 @@ function startActivationFlow(win) {
     const email = url.searchParams.get('email');
     const apiKey = url.searchParams.get('api_key');
     const provider = url.searchParams.get('provider') || 'anthropic';
+    const accessToken = url.searchParams.get('access_token');
+    const refreshToken = url.searchParams.get('refresh_token');
+    const memberId = url.searchParams.get('member_id');
+    const anonKey = url.searchParams.get('anon_key');
     if (accountId) {
       console.log('[CROCbox] Activation callback received: account_id=' + accountId + (apiKey ? ' with API key' : ' no API key'));
       res.writeHead(200, { 'Content-Type': 'text/html' });
       res.end('<html><body style="background:#1a1a1a;color:#ccc;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2 style="color:#d4a017">CROCbox Activated</h2><p>You can close this tab and return to CROCbox.</p></div></body></html>');
       // Complete enrollment
-      completeActivation(win, accountId, email, apiKey, provider);
+      completeActivation(win, accountId, email, apiKey, provider, accessToken, refreshToken, memberId, anonKey);
       // Shut down callback server after a short delay
       setTimeout(() => {
         if (activationServer) { activationServer.close(); activationServer = null; }
@@ -683,13 +703,13 @@ function startActivationFlow(win) {
   });
 }
 
-async function completeActivation(win, accountId, email, apiKey, provider) {
+async function completeActivation(win, accountId, email, apiKey, provider, accessToken, refreshToken, memberId, anonKey) {
   // Step 1: Write account.json UNCONDITIONALLY (do not gate on VE enrollment)
   var statePath = require('path').join(require('os').homedir(), '.crocbox');
   try { fs.mkdirSync(statePath, { recursive: true }); } catch(e) {}
   var accountFile = require('path').join(statePath, 'account.json');
   fs.writeFileSync(accountFile,
-    JSON.stringify({ account_id: accountId, email: email || '', activated: new Date().toISOString(), firstRun: true }), 'utf8');
+    JSON.stringify({ account_id: accountId, email: email || '', activated: new Date().toISOString(), firstRun: true, access_token: accessToken || '', refresh_token: refreshToken || '', member_id: memberId || accountId, anon_key: anonKey || '' }, null, 2), 'utf8');
   console.log('[CROCbox] account.json written: ' + accountFile);
 
   // Step 2: Write API key UNCONDITIONALLY (do not gate on VE enrollment)
@@ -1746,12 +1766,16 @@ app.whenReady().then(async () => {
           const email = url.searchParams.get('email');
           const apiKey = url.searchParams.get('api_key');
           const provider = url.searchParams.get('provider') || 'anthropic';
+          const accessToken = url.searchParams.get('access_token');
+          const refreshToken = url.searchParams.get('refresh_token');
+          const memberId = url.searchParams.get('member_id');
+          const anonKey = url.searchParams.get('anon_key');
           if (accountId) {
             console.log('[CROCbox] Activation callback received: account_id=' + accountId + (apiKey ? ' with API key' : ' no API key'));
             res.writeHead(200, { 'Content-Type': 'text/html' });
             res.end('<html><body style="background:#1a1a1a;color:#ccc;font-family:-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><div style="text-align:center"><h2 style="color:#d4a017">CROCbox Activated</h2><p>You can close this tab and return to CROCbox.</p></div></body></html>');
             // Save account and enroll
-            completeActivation(null, accountId, email, apiKey, provider).then(() => {
+            completeActivation(null, accountId, email, apiKey, provider, accessToken, refreshToken, memberId, anonKey).then(() => {
               setTimeout(() => { srv.close(); resolve(); }, 1000);
             }).catch(() => {
               setTimeout(() => { srv.close(); resolve(); }, 1000);
