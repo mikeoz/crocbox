@@ -104,7 +104,7 @@ function httpsRequest(method, urlStr, headers, body) {
 function supabaseHeaders() {
   return {
     'Content-Type': 'application/json',
-    'apikey': account.anon_key || '',
+    'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFtcG14cnRjeXNybmdmam90a2NxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEwMDI1NzQsImV4cCI6MjA4NjU3ODU3NH0.JGzxUDz1RsQCCXQPUWI2B5gkMBSu_ZTZ5geofGLF6Ls',
     'Authorization': 'Bearer ' + account.access_token,
     'Prefer': 'return=minimal'
   };
@@ -115,7 +115,7 @@ async function refreshToken() {
   try {
     const res = await httpsRequest('POST',
       SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token',
-      { 'Content-Type': 'application/json', 'apikey': account.anon_key || '' },
+      { 'Content-Type': 'application/json', 'apikey': 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFtcG14cnRjeXNybmdmam90a2NxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzEwMDI1NzQsImV4cCI6MjA4NjU3ODU3NH0.JGzxUDz1RsQCCXQPUWI2B5gkMBSu_ZTZ5geofGLF6Ls' },
       { refresh_token: account.refresh_token });
     if (res.status === 200) {
       const parsed = JSON.parse(res.body);
