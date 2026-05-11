@@ -1,5 +1,5 @@
 /**
- * CROCbox v0.9 — Electron Main Process
+ * CROCbox v1.0.0-beta.11 — Electron Main Process
  * 
  * Phase 1: Gateway Connection (with auto-start + native error dialogs)
  * Phase 2: BrowserWindow + Control UI
@@ -187,7 +187,7 @@ function ensureOpenClawConfig() {
   if (!config.agents.defaults) config.agents.defaults = {};
   if (!config.agents.defaults.model) config.agents.defaults.model = {};
   if (!config.agents.defaults.model.primary) {
-    config.agents.defaults.model.primary = 'anthropic/claude-sonnet-4-20250514';
+    config.agents.defaults.model.primary = 'anthropic/claude-sonnet-4-6';
     console.log('[CROCbox] Default model set to Claude Sonnet 4');
   }
   // Remove unrecognized keys that crash newer Gateway versions
@@ -971,7 +971,7 @@ function openKeyCARDWindow() {
   ].join('\n'), 'utf8');
 
   var providerOptions = [
-    { name: 'Anthropic', id: 'anthropic', baseUrl: '', model: 'anthropic/claude-sonnet-4-20250514', keyPrefix: 'sk-ant-', hint: 'Built-in provider. No base URL needed.' },
+    { name: 'Anthropic', id: 'anthropic', baseUrl: '', model: 'anthropic/claude-sonnet-4-6', keyPrefix: 'sk-ant-', hint: 'Built-in provider. No base URL needed.' },
     { name: 'Neurometric', id: 'neurometric', baseUrl: 'https://api.neurometric.ai/v1', model: 'neurometric/clawpack', keyPrefix: '', hint: 'Free: 100M tokens/month. marketplace.neurometric.ai/clawpack' },
     { name: 'OpenAI', id: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'openai/gpt-4o', keyPrefix: 'sk-', hint: 'Requires OpenAI API key.' },
     { name: 'OpenRouter', id: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'openrouter/auto', keyPrefix: 'sk-or-', hint: 'Aggregates 200+ models. openrouter.ai' },
@@ -1026,7 +1026,7 @@ function openKeyCARDWindow() {
     + '<div class="field"><label>Provider</label><select id="provider">' + optionsHTML + '</select></div>'
     + '<div class="field"><label>API Key</label><input type="text" id="apikey" placeholder="Paste your API key" autocomplete="off" spellcheck="false"></div>'
     + '<div class="field"><label>Base URL</label><input type="text" id="baseurl" placeholder="(built-in — no URL needed)"></div>'
-    + '<div class="field"><label>Model ID</label><input type="text" id="modelid" value="anthropic/claude-sonnet-4-20250514"></div>'
+    + '<div class="field"><label>Model ID</label><input type="text" id="modelid" value="anthropic/claude-sonnet-4-6"></div>'
     + '<div class="hint" id="provider-hint">Built-in provider. No base URL needed.</div>'
     + '</div>'
 
@@ -1420,7 +1420,7 @@ function wireConsentIPC(win) {
     require('electron').dialog.showMessageBoxSync({
       type: 'info',
       title: 'About CROCbox',
-      message: 'CROCbox v1.0.0-beta.10',
+      message: 'CROCbox v1.0.0-beta.11',
       detail: 'The Agent Trust Layer for OpenClaw\n\nMy data + Your AI + My control = Living Intelligence\n\n© 2026 Openly Personal Networks, Inc. (Opn.li)\nhttps://opn.li'
     });
     return true;
@@ -1544,7 +1544,7 @@ function wireConsentIPC(win) {
       try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch(e) {}
       var model = '';
       if (selected.provider === 'anthropic') {
-        model = 'anthropic/claude-sonnet-4-20250514';
+        model = 'anthropic/claude-sonnet-4-6';
       } else if (config.models && config.models.providers && config.models.providers[selected.provider]) {
         var pm = config.models.providers[selected.provider].models;
         if (pm && pm.length > 0) model = pm[0].id;
@@ -1585,7 +1585,7 @@ let veAgentId = null; // VE agent ID (from enrollment)
 app.whenReady().then(async () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║   CROCbox v1.0.0-beta.10 — Green Shield       ║');
+  console.log('  ║   CROCbox v1.0.0-beta.11 — Green Shield       ║');
   console.log('  ║   The Agent Trust Layer for OpenClaw  ║');
   console.log('  ║   Shield Scoring Engine Edition       ║');
   console.log('  ╚══════════════════════════════════════╝');
@@ -1871,7 +1871,7 @@ app.whenReady().then(async () => {
       });
       console.log('[CROCbox] Account activation completed ✓');
       // Re-initialize Agent Sync now that account.json has auth credentials
-      try { agentSync.init({ agent_name: 'BigCROC', model: 'anthropic/claude-sonnet-4-20250514', shield_level: 'green', skill_count: 0 }); console.log('[CROCbox] Agent Sync re-initialized after activation (enabled=' + agentSync.isEnabled() + ')'); } catch(e) { console.warn('[CROCbox] Agent Sync re-init failed:', e.message); }
+      try { agentSync.init({ agent_name: 'BigCROC', model: 'anthropic/claude-sonnet-4-6', shield_level: 'green', skill_count: 0 }); console.log('[CROCbox] Agent Sync re-initialized after activation (enabled=' + agentSync.isEnabled() + ')'); } catch(e) { console.warn('[CROCbox] Agent Sync re-init failed:', e.message); }
       // B4: Restart Gateway so it reads the new auth-profiles.json
       if (bundledGatewayProcess) {
         console.log('[CROCbox] Restarting Gateway to load API key...');
@@ -1910,7 +1910,7 @@ app.whenReady().then(async () => {
   try {
     agentSync.init({
       agent_name: 'BigCROC',
-      model: 'anthropic/claude-sonnet-4-20250514',
+      model: 'anthropic/claude-sonnet-4-6',
       shield_level: 'green',
       skill_count: 0
     });
@@ -1995,7 +1995,7 @@ app.whenReady().then(async () => {
   }, 3000);
 
   startupComplete = true;
-  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.10 ready');
+  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.11 ready');
   console.log('');
 });
 app.on('window-all-closed', async () => {

@@ -241,7 +241,7 @@ const server = http.createServer((req, res) => {
         async function callClaude(msgs) {
           return new Promise((resolve, reject) => {
             const payload = JSON.stringify({
-              model: 'claude-sonnet-4-20250514',
+              model: 'claude-sonnet-4-6',
               max_tokens: 1024,
               system: OPENCLAW_SYSTEM,
               tools,
