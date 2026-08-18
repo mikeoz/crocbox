@@ -46,15 +46,6 @@ const OTN_CONNECTED = !!(CONSENT_SERVER_URL && CONSENT_SUBMIT_SECRET && CROCBOX_
 const pendingGreenConsents = new Map();
 let consentCallback = null;
 let timeoutCallback = null;
-// RE-1: the chain receipt callback, and how long we wait for the chain answer
-// before telling the NHB the decision was not recorded.
-let receiptCallback = null;
-var RECEIPT_WAIT_MS = 15000;
-// Step 5: a standing rule answers at /v1/submit and returns immediately; a hold
-// that needs a human blocks there. This is how long the gate waits for a rule
-// answer before deciding the NHB must be asked. Fail-closed: on expiry, ask.
-let ruleAppliedCallback = null;
-var RULE_FAST_PATH_MS = 900;
 
 // ── Local Audit Logger (backup) ────────────────────────────────
 const AUDIT_LOG_PATH = path.join(
@@ -120,9 +111,9 @@ function submitToOTN(toolName, params, sessionId) {
       target: detail || toolName,
       member_id: CROCBOX_MEMBER_ID,
       source_product: 'crocbox',
-      source_entity_id: '98e6797e-9ebd-424a-9f5c-5923bad048fe',
+      source_entity_id: 'crocbox-local',
       entity_name: 'CROCbox',
-      entity_type: 'ai_agent',
+      entity_type: 'agent',
       session_id: sessionId,
       summary_text: toolName + ': ' + (detail || '(no detail)')
     });
@@ -184,7 +175,7 @@ function decideOnOTN(holdId, decision) {
     hostname: url.hostname,
     port: url.port || 443,
     path: url.pathname,
-    method: "POST",
+    method: 'GET',
     headers: { 'Authorization': 'Bearer ' + CONSENT_SUBMIT_SECRET },
     timeout: 10000
   }, function(res) {
@@ -251,127 +242,34 @@ function startGreenShieldServer() {
           // The OTN submit will block on ITS end until decided via /v1/decide
           var otnPromise = submitToOTN(toolName, toolParams, sessionId);
 
-          // Shows the local consent card and waits for the NHB. Called only when
-          // no standing rule has already answered this question.
-          function startLocalPrompt() {
-            var localPromise = new Promise(function(resolve) {
-              var timer = setTimeout(function() {
-                if (pendingGreenConsents.has(requestId)) {
-                  pendingGreenConsents.delete(requestId);
-                  writeLocalAudit(requestId, toolName, 'timeout', toolParams);
-                  if (typeof timeoutCallback === 'function') {
-                    timeoutCallback({ requestId: requestId, toolName: toolName });
-                  }
-                  resolve({ allowed: false, reason: 'consent-timeout', decision: 'timeout' });
+          // Simultaneously, show the local consent card and wait for NHB
+          var localPromise = new Promise(function(resolve) {
+            var timer = setTimeout(function() {
+              if (pendingGreenConsents.has(requestId)) {
+                pendingGreenConsents.delete(requestId);
+                writeLocalAudit(requestId, toolName, 'timeout', toolParams);
+                if (typeof timeoutCallback === 'function') {
+                  timeoutCallback({ requestId: requestId, toolName: toolName });
                 }
-              }, CONSENT_TIMEOUT_MS);
-
-              pendingGreenConsents.set(requestId, {
-                resolve: resolve,
-                timer: timer,
-                toolName: toolName,
-                params: toolParams,
-                otnPromise: otnPromise
-              });
-            });
-
-            notifyConsentRequest(requestId, toolName, toolParams);
-
-            // The local decision drives the response to OpenClaw
-            localPromise.then(function(result) {
-              res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ allowed: result.allowed, reason: result.reason }));
-            });
-          }
-
-          // Step 5 fast path. A standing rule is decided inside /v1/submit and
-          // returns at once; a hold needing a human blocks there for up to 70s.
-          // If the answer arrives inside RULE_FAST_PATH_MS carrying reason
-          // 'rule', the NHB has already answered this and must not be asked
-          // again. Every other outcome falls through to the card.
-          // Records the rule decision and puts the receipt on screen. Used by
-          // both paths below. Does not write the HTTP response — the caller does,
-          // because who answers OpenClaw differs between the two paths.
-          function finishByRule(rr, wasLate) {
-            var ruleDecision = rr.allowed ? 'allow' : 'deny';
-            console.log('[GreenShield] Rule decided ' + ruleDecision + ' for ' + toolName +
-                        (wasLate ? ' — question withdrawn, NHB had not answered'
-                                 : ' — NHB not interrupted') +
-                        ' (rule ' + (rr.rule_id || 'unknown') + ')');
-            writeLocalAudit(requestId, toolName, ruleDecision, toolParams);
-
-            if (typeof ruleAppliedCallback === 'function') {
-              try {
-                ruleAppliedCallback({
-                  requestId: requestId,
-                  toolName: toolName,
-                  toolParams: toolParams,
-                  decision: ruleDecision,
-                  rule_id: rr.rule_id || null,
-                  rule_sentence: rr.rule_sentence || null,
-                  audit_hash: rr.audit_hash || null,
-                  recorded: !!rr.audit_hash
-                });
-              } catch (e) {
-                console.error('[GreenShield] Rule-applied callback threw — ' + e.message);
+                resolve({ allowed: false, reason: 'consent-timeout', decision: 'timeout' });
               }
-            } else {
-              console.error('[GreenShield] No rule-applied callback — receipt not shown');
-            }
-          }
+            }, CONSENT_TIMEOUT_MS);
 
-          var fastPathSettled = false;
-          var fastTimer = setTimeout(function() {
-            if (fastPathSettled) return;
-            fastPathSettled = true;
-            startLocalPrompt();
-          }, RULE_FAST_PATH_MS);
-
-          otnPromise.then(function(r) {
-            var rr = (r && r.otnResult) || null;
-            var byRule = !!(rr && rr.reason === 'rule');
-
-            // FAST PATH — the answer beat the card. No card is ever shown.
-            if (!fastPathSettled) {
-              fastPathSettled = true;
-              clearTimeout(fastTimer);
-              if (!byRule) {
-                startLocalPrompt();
-                return;
-              }
-              finishByRule(rr, false);
-              res.writeHead(200, { 'Content-Type': 'application/json' });
-              res.end(JSON.stringify({ allowed: !!rr.allowed, reason: 'rule' }));
-              return;
-            }
-
-            // LATE PATH — the card is already up. The Consent Server must
-            // evaluate the rule and write two chain rows before it answers, so
-            // this is the common case, not the exception.
-            if (!byRule) return;
-
-            var pend = pendingGreenConsents.get(requestId);
-            if (!pend) {
-              // The NHB already answered, or it timed out. Their answer stands.
-              return;
-            }
-
-            // Withdraw the question. The NHB should never have to answer
-            // something their own rule already answered.
-            clearTimeout(pend.timer);
-            pendingGreenConsents.delete(requestId);
-            finishByRule(rr, true);
-            pend.resolve({
-              allowed: !!rr.allowed,
-              reason: 'rule',
-              decision: rr.allowed ? 'allow' : 'deny'
+            pendingGreenConsents.set(requestId, {
+              resolve: resolve,
+              timer: timer,
+              toolName: toolName,
+              params: toolParams,
+              otnPromise: otnPromise
             });
-          }).catch(function(err) {
-            if (fastPathSettled) return;
-            fastPathSettled = true;
-            clearTimeout(fastTimer);
-            console.error('[GreenShield] Submit rejected — asking the NHB: ' + err.message);
-            startLocalPrompt();
+          });
+
+          notifyConsentRequest(requestId, toolName, toolParams);
+
+          // The local decision drives the response to OpenClaw
+          localPromise.then(function(result) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ allowed: result.allowed, reason: result.reason }));
           });
 
         } catch (err) {
@@ -456,9 +354,6 @@ function resolveGreenConsent(requestId, decision) {
     findAndDecideOTNHold(decision);
   }
 
-  // RE-1: carry the chain answer back to the screen, or say it was not recorded
-  emitReceipt(requestId, pending.otnPromise, decision);
-
   console.log('[GreenShield] Resolved: ' + decision + ' tool=' + pending.toolName + ' id=' + requestId);
   pending.resolve({ allowed: allowed, reason: 'user-' + decision, decision: decision });
   return { ok: true, decision: decision };
@@ -473,7 +368,7 @@ function findAndDecideOTNHold(decision) {
     hostname: pendingUrl.hostname,
     port: pendingUrl.port || 443,
     path: pendingUrl.pathname + pendingUrl.search,
-    method: "GET",
+    method: 'GET',
     headers: { 'Authorization': 'Bearer ' + CONSENT_SUBMIT_SECRET },
     timeout: 10000
   }, function(res) {
@@ -518,77 +413,7 @@ function setTimeoutCallback(cb) {
   console.log('[GreenShield] Timeout callback registered');
 }
 
-function setReceiptCallback(cb) {
-  receiptCallback = cb;
-  console.log('[GreenShield] Receipt callback registered');
-}
-
-function setRuleAppliedCallback(cb) {
-  ruleAppliedCallback = cb;
-  console.log('[GreenShield] Rule-applied callback registered');
-}
-
-// RE-1: A decision that is not recorded must not be presented as recorded.
-// The /v1/submit answer carries audit_hash. Until now nothing read it.
-// We wait for that answer and report it — hash present or hash absent.
-// Absent, unreachable, malformed, or slow all report the same thing: NOT RECORDED.
-function emitReceipt(requestId, otnPromise, decision) {
-  if (typeof receiptCallback !== 'function') {
-    console.log('[GreenShield] Receipt: no callback registered — receipt not reported');
-    return;
-  }
-
-  function send(auditHash, reason) {
-    try {
-      receiptCallback({
-        requestId: requestId,
-        decision: decision,
-        audit_hash: auditHash || null,
-        recorded: !!auditHash,
-        reason: reason || null
-      });
-    } catch (e) {
-      console.error('[GreenShield] Receipt: callback threw — ' + e.message);
-    }
-  }
-
-  if (!OTN_CONNECTED || !otnPromise) {
-    console.error('[GreenShield] Receipt: local-only mode — decision is NOT on the chain');
-    send(null, 'local-only');
-    return;
-  }
-
-  var settled = false;
-  var timer = setTimeout(function() {
-    if (settled) return;
-    settled = true;
-    console.error('[GreenShield] Receipt: no chain answer within ' + RECEIPT_WAIT_MS + 'ms — reporting NOT RECORDED');
-    send(null, 'receipt-timeout');
-  }, RECEIPT_WAIT_MS);
-
-  otnPromise.then(function(r) {
-    if (settled) return;
-    settled = true;
-    clearTimeout(timer);
-    var res = (r && r.otnResult) || {};
-    if (res.audit_hash) {
-      console.log('[GreenShield] Receipt: chain hash received for ' + requestId);
-    } else {
-      console.error('[GreenShield] Receipt: submit returned no audit_hash — reporting NOT RECORDED (reason=' + (res.reason || 'none') + ')');
-    }
-    send(res.audit_hash || null, res.reason || null);
-  }).catch(function(err) {
-    if (settled) return;
-    settled = true;
-    clearTimeout(timer);
-    console.error('[GreenShield] Receipt: submit promise rejected — ' + err.message);
-    send(null, 'submit-error');
-  });
-}
-
 module.exports = {
-  setReceiptCallback,
-  setRuleAppliedCallback,
   startGreenShieldServer,
   stopGreenShieldServer,
   resolveGreenConsent,
