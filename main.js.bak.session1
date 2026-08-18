@@ -1,11 +1,11 @@
 /**
- * CROCbox v1.0.0-beta.12 — Electron Main Process
+ * CROCbox v0.9 — Electron Main Process
  * 
  * Phase 1: Gateway Connection (with auto-start + native error dialogs)
  * Phase 2: BrowserWindow + Control UI
  * A.7: Auth token auto-injected via proxy HTML injection
  * A.8: WebSocket MITM proxy with HTTP proxying and WS redirect
- * A.12: Green Shield consent + Controls Panel IPC
+ * A.11: Yellow Shield consent IPC bridge (proxy <-> renderer)
  * 
  * Architecture:
  *   Electron Main Process
@@ -18,6 +18,7 @@
  *     |- BrowserWindow loads http://127.0.0.1:18788 (proxy)
  *     +-- IPC bridge: proxy consent signals <-> renderer consent card (A.11)
  * 
+ * @see OPN_ENG_A10-YellowShield_18MAR26_v1 — Yellow Shield architecture
  * @see OPN_ENG_v08-Architecture_15MAR26_v1, Section 3.2
  * @see OPN_PM_FullCROC-Mode_16MAR26_v2, Section 5
  */
@@ -48,52 +49,11 @@ function stampedWrite(prefix, args) {
 console.log = function() { origLog.apply(console, arguments); stampedWrite('LOG', arguments); };
 console.warn = function() { origWarn.apply(console, arguments); stampedWrite('WARN', arguments); };
 console.error = function() { origError.apply(console, arguments); stampedWrite('ERR', arguments); };
-const { startProxy, stopProxy, setGreenShieldActive, PROXY_PORT } = require('./ws-proxy');
+const { startProxy, stopProxy, setConsentIPC, resolveConsent, setGreenShieldActive, PROXY_PORT } = require('./ws-proxy');
 const { computeShieldScore, getShieldDetailHTML, parseCatalog } = require('./shield-score');
-
-// S3: Parse .env BEFORE requiring green-shield-gate, which reads
-// CONSENT_SERVER_URL, CONSENT_SUBMIT_SECRET, and CROCBOX_MEMBER_ID
-// at module load time. Without this, the DMG launch has no OTN credentials.
-// Only sets vars not already in process.env, so explicit overrides win.
-(function parseEnvFile() {
-  var p = require('path');
-  var fs = require('fs');
-  var appSupport = p.join(process.env.HOME || '/tmp', 'Library', 'Application Support', 'CROCbox', '.env');
-  var dev = p.join(process.env.HOME || '/tmp', 'opnli', 'crocbox', '.env');
-  var envPath = fs.existsSync(appSupport) ? appSupport : dev;
-  process.env.CROCBOX_ENV_PATH = envPath;
-  if (!fs.existsSync(envPath)) {
-    console.error('[CROCbox] .env not found at ' + envPath + ' — OTN credentials will be missing');
-    return;
-  }
-  try {
-    var lines = fs.readFileSync(envPath, 'utf8').split('\n');
-    var count = 0;
-    lines.forEach(function(line) {
-      line = line.trim();
-      if (!line || line.charAt(0) === '#') return;
-      var eq = line.indexOf('=');
-      if (eq < 1) return;
-      var key = line.substring(0, eq).trim();
-      var val = line.substring(eq + 1).trim();
-      // Strip surrounding quotes if present
-      if ((val.charAt(0) === '"' && val.charAt(val.length - 1) === '"') ||
-          (val.charAt(0) === "'" && val.charAt(val.length - 1) === "'")) {
-        val = val.substring(1, val.length - 1);
-      }
-      if (!process.env[key]) {
-        process.env[key] = val;
-        count++;
-      }
-    });
-    console.log('[CROCbox] .env parsed: ' + count + ' vars set from ' + envPath);
-  } catch (e) {
-    console.error('[CROCbox] .env parse failed: ' + e.message);
-  }
-})();
-
-const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, setConsentCallback, setTimeoutCallback, setReceiptCallback, setRuleAppliedCallback, GREEN_SHIELD_PORT } = require('./green-shield-gate');
+const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, setConsentCallback, setTimeoutCallback, GREEN_SHIELD_PORT } = require('./green-shield-gate');
 const agentSync = require('./agent-sync');
+process.env.CROCBOX_ENV_PATH = (function() { var p = require("path"); var fs = require("fs"); var appSupport = p.join(process.env.HOME || "/tmp", "Library", "Application Support", "CROCbox", ".env"); var dev = p.join(process.env.HOME || "/tmp", "opnli", "crocbox", ".env"); return fs.existsSync(appSupport) ? appSupport : dev; })();
 if (!process.env.VE_ENDPOINT) { process.env.VE_ENDPOINT = 'https://ve-staging.opn.li'; } // Beta fallback — see GT-17 in SessionCloseout
 const { enroll: veEnroll, verify: veVerify, checkStatus: veCheckStatus } = require('./card_ve_client');
 // ── Configuration ──────────────────────────────────────────────
@@ -227,7 +187,7 @@ function ensureOpenClawConfig() {
   if (!config.agents.defaults) config.agents.defaults = {};
   if (!config.agents.defaults.model) config.agents.defaults.model = {};
   if (!config.agents.defaults.model.primary) {
-    config.agents.defaults.model.primary = 'anthropic/claude-sonnet-4-6';
+    config.agents.defaults.model.primary = 'anthropic/claude-sonnet-4-20250514';
     console.log('[CROCbox] Default model set to Claude Sonnet 4');
   }
   // Remove unrecognized keys that crash newer Gateway versions
@@ -630,7 +590,7 @@ function showExistingUserWelcome() {
   <div class="features">
     <div class="feature">
       <span class="feature-icon">&#x1F6E1;</span>
-      <span class="feature-text"><strong>Green Shield consent</strong> fires on every tool your AI uses. You decide what happens.</span>
+      <span class="feature-text"><strong>Yellow Shield consent</strong> fires on every tool your AI uses. You decide what happens.</span>
     </div>
     <div class="feature">
       <span class="feature-icon">&#x1F4CB;</span>
@@ -818,22 +778,6 @@ async function completeActivation(win, accountId, email, apiKey, provider, acces
   fs.writeFileSync(accountFile,
     JSON.stringify({ account_id: accountId, email: email || '', activated: new Date().toISOString(), firstRun: true, access_token: accessToken || '', refresh_token: refreshToken || '', member_id: memberId || accountId, anon_key: anonKey || '' }, null, 2), 'utf8');
   console.log('[CROCbox] account.json written: ' + accountFile);
-
-  // Step 1b: Write CROCBOX_MEMBER_ID to .env so Green Shield gate has it on next launch
-  try {
-    var envPath = process.env.CROCBOX_ENV_PATH || require("path").join(require("os").homedir(), "opnli", "crocbox", ".env");
-    var envContent = "";
-    try { envContent = fs.readFileSync(envPath, "utf8"); } catch(e) {}
-    if (envContent.indexOf("CROCBOX_MEMBER_ID") === -1) {
-      envContent += "\nCROCBOX_MEMBER_ID=" + (memberId || accountId) + "\n";
-      fs.writeFileSync(envPath, envContent, "utf8");
-      console.log("[CROCbox] CROCBOX_MEMBER_ID written to .env");
-    } else {
-      envContent = envContent.replace(/CROCBOX_MEMBER_ID=.*/, "CROCBOX_MEMBER_ID=" + (memberId || accountId));
-      fs.writeFileSync(envPath, envContent, "utf8");
-      console.log("[CROCbox] CROCBOX_MEMBER_ID updated in .env");
-    }
-  } catch(envErr) { console.log("[CROCbox] .env write failed: " + envErr.message); }
 
   // Step 2: Write API key UNCONDITIONALLY (do not gate on VE enrollment)
   if (apiKey) {
@@ -1027,7 +971,7 @@ function openKeyCARDWindow() {
   ].join('\n'), 'utf8');
 
   var providerOptions = [
-    { name: 'Anthropic', id: 'anthropic', baseUrl: '', model: 'anthropic/claude-sonnet-4-6', keyPrefix: 'sk-ant-', hint: 'Built-in provider. No base URL needed.' },
+    { name: 'Anthropic', id: 'anthropic', baseUrl: '', model: 'anthropic/claude-sonnet-4-20250514', keyPrefix: 'sk-ant-', hint: 'Built-in provider. No base URL needed.' },
     { name: 'Neurometric', id: 'neurometric', baseUrl: 'https://api.neurometric.ai/v1', model: 'neurometric/clawpack', keyPrefix: '', hint: 'Free: 100M tokens/month. marketplace.neurometric.ai/clawpack' },
     { name: 'OpenAI', id: 'openai', baseUrl: 'https://api.openai.com/v1', model: 'openai/gpt-4o', keyPrefix: 'sk-', hint: 'Requires OpenAI API key.' },
     { name: 'OpenRouter', id: 'openrouter', baseUrl: 'https://openrouter.ai/api/v1', model: 'openrouter/auto', keyPrefix: 'sk-or-', hint: 'Aggregates 200+ models. openrouter.ai' },
@@ -1082,7 +1026,7 @@ function openKeyCARDWindow() {
     + '<div class="field"><label>Provider</label><select id="provider">' + optionsHTML + '</select></div>'
     + '<div class="field"><label>API Key</label><input type="text" id="apikey" placeholder="Paste your API key" autocomplete="off" spellcheck="false"></div>'
     + '<div class="field"><label>Base URL</label><input type="text" id="baseurl" placeholder="(built-in — no URL needed)"></div>'
-    + '<div class="field"><label>Model ID</label><input type="text" id="modelid" value="anthropic/claude-sonnet-4-6"></div>'
+    + '<div class="field"><label>Model ID</label><input type="text" id="modelid" value="anthropic/claude-sonnet-4-20250514"></div>'
     + '<div class="hint" id="provider-hint">Built-in provider. No base URL needed.</div>'
     + '</div>'
 
@@ -1361,6 +1305,7 @@ function createWindow(gatewayConnection, installScenario, gatewayToken) {
   });
   return win;
 }
+// ── A.11: Wire Yellow Shield Consent IPC ───────────────────────
 //
 // The proxy detects a seq-gap (tool execution) and calls the IPC
 // callback. main.js forwards the consent request to the renderer
@@ -1368,8 +1313,77 @@ function createWindow(gatewayConnection, installScenario, gatewayToken) {
 // sends the decision back via ipcMain.handle.
 //
 // Flow:
-// ── IPC Handlers (Controls Panel + Green Shield support) ─────
-function registerIPC(win) {
+//   ws-proxy.js (gap detected)
+//     -> consentIPCCallback(request)
+//       -> main.js sends 'crocbox:consent-request' to renderer
+//         -> renderer shows Yellow Shield consent card
+//           -> user clicks Allow/Deny
+//             -> renderer calls ipcRenderer.invoke('crocbox:consent-resolve')
+//               -> main.js calls resolveConsent(holdId, decision)
+//                 -> ws-proxy.js forwards or drops held events
+function wireConsentIPC(win) {
+  // Register the IPC callback with the proxy
+  setConsentIPC(function(consentRequest) {
+    if (!win || win.isDestroyed() || !win.webContents) {
+      console.log('[CROCbox] IPC: Window not available — consent will timeout (fail-closed)');
+      return;
+    }
+    console.log('[CROCbox] IPC: Showing consent card via executeJavaScript (holdId=' + consentRequest.holdId + ')');
+    // Also send via IPC for preload bridge
+    win.webContents.send('crocbox:consent-request', consentRequest);
+    // Inject consent card directly into the page via executeJavaScript
+    var cardJS = `
+      (function() {
+        var holdId = '${consentRequest.holdId}';
+        // Remove any existing card
+        var old = document.getElementById('crocbox-consent-overlay');
+        if (old) old.remove();
+        // Add style if needed
+        if (!document.getElementById('crocbox-consent-style')) {
+          var s = document.createElement('style');
+          s.id = 'crocbox-consent-style';
+          s.textContent = '#crocbox-consent-overlay { position:fixed; top:0; right:0; bottom:0; width:360px; z-index:999999; background:rgba(0,0,0,0.92); border-left:3px solid #d4a017; font-family:-apple-system,BlinkMacSystemFont,sans-serif; color:#f0f0f0; display:flex; flex-direction:column; } #crocbox-consent-overlay button { flex:1; padding:14px 16px; border:none; border-radius:8px; font-size:15px; font-weight:500; cursor:pointer; } #crocbox-btn-allow { background:#d4a017; color:#000; } #crocbox-btn-deny { background:#333; color:#f0f0f0; border:1px solid #555; }';
+          document.head.appendChild(s);
+        }
+        var overlay = document.createElement('div');
+        overlay.id = 'crocbox-consent-overlay';
+        overlay.innerHTML = '<div style="padding:24px 24px 16px; border-bottom:1px solid rgba(212,160,23,0.3)"><div style="text-align:center; margin-bottom:8px"><svg width=\"48\" height=\"58\" viewBox=\"0 0 100 120\" style=\"display:inline-block\"><path d=\"M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z\" fill=\"#58585C\" stroke=\"#707074\" stroke-width=\"3\"/><path d=\"M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z\" fill=\"#CA8A04\"/><path d=\"M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z\" fill=\"#EAB308\"/></svg></div><div style="font-size:17px; font-weight:500; color:#d4a017; margin-bottom:6px">Yellow Shield</div><div style="font-size:13px; color:#999">Action Detected</div></div><div style="flex:1; padding:20px 24px"><div style="font-size:14px; color:#ccc; line-height:1.6; margin-bottom:16px">Your AI executed an action. The result is ready but has <strong>not been delivered</strong> yet.<br><br><strong>You decide what happens next.</strong></div><div style="background:rgba(212,160,23,0.1); border:1px solid rgba(212,160,23,0.25); border-radius:8px; padding:12px; font-size:12px; color:#b0b0b0; line-height:1.5">Yellow Shield means the action already ran. CROCbox controls whether the result reaches you.</div></div><div style="padding:16px 24px 24px; display:flex; gap:12px"><button id="crocbox-btn-allow">Allow Result</button><button id="crocbox-btn-deny">Block Result</button></div>';
+        document.body.appendChild(overlay);
+        console.log('[CROCbox] Consent card injected via executeJavaScript');
+        document.getElementById('crocbox-btn-allow').addEventListener('click', function() {
+          console.log('[CROCbox] User clicked ALLOW');
+          overlay.remove();
+          if (window.crocbox && window.crocbox.resolveConsent) {
+            window.crocbox.resolveConsent(holdId, 'allow');
+          }
+        });
+        document.getElementById('crocbox-btn-deny').addEventListener('click', function() {
+          console.log('[CROCbox] User clicked DENY');
+          overlay.remove();
+          if (window.crocbox && window.crocbox.resolveConsent) {
+            window.crocbox.resolveConsent(holdId, 'deny');
+          }
+        });
+      })();
+    `;
+    win.webContents.executeJavaScript(cardJS).then(function() {
+      console.log('[CROCbox] IPC: Consent card executeJavaScript succeeded');
+    }).catch(function(err) {
+      console.log('[CROCbox] IPC: Consent card executeJavaScript failed: ' + err.message);
+    });
+  });
+  // Handle consent decisions from the renderer
+  ipcMain.handle('crocbox:consent-resolve', function(_event, holdId, decision) {
+    console.log('[CROCbox] IPC: Received consent decision from renderer: holdId=' + holdId + ' decision=' + decision);
+    // Validate decision
+    if (decision !== 'allow' && decision !== 'deny') {
+      console.log('[CROCbox] IPC: Invalid decision "' + decision + '" — treating as deny');
+      decision = 'deny';
+    }
+    var result = resolveConsent(holdId, decision);
+    return { success: result, holdId: holdId, decision: decision };
+  });
+  
   // Trust Activity IPC: renderer can open activity viewer
   ipcMain.handle('crocbox:trust-activity', () => {
     openTrustActivity();
@@ -1380,6 +1394,7 @@ function registerIPC(win) {
     startActivationFlow(mainWindow);
     return true;
   });
+  console.log('[CROCbox] Yellow Shield consent IPC wired ✓');
 
   // Shield Scoring Engine IPC — click handler
   ipcMain.handle('crocbox:shield-detail', function() {
@@ -1405,7 +1420,7 @@ function registerIPC(win) {
     require('electron').dialog.showMessageBoxSync({
       type: 'info',
       title: 'About CROCbox',
-      message: 'CROCbox v1.0.0-beta.12',
+      message: 'CROCbox v1.0.0-beta.10',
       detail: 'The Agent Trust Layer for OpenClaw\n\nMy data + Your AI + My control = Living Intelligence\n\n© 2026 Openly Personal Networks, Inc. (Opn.li)\nhttps://opn.li'
     });
     return true;
@@ -1529,7 +1544,7 @@ function registerIPC(win) {
       try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch(e) {}
       var model = '';
       if (selected.provider === 'anthropic') {
-        model = 'anthropic/claude-sonnet-4-6';
+        model = 'anthropic/claude-sonnet-4-20250514';
       } else if (config.models && config.models.providers && config.models.providers[selected.provider]) {
         var pm = config.models.providers[selected.provider].models;
         if (pm && pm.length > 0) model = pm[0].id;
@@ -1554,7 +1569,6 @@ function registerIPC(win) {
   });
 
   console.log('[CROCbox] Controls panel IPC wired ✓');
-  console.log('[CROCbox] Controls panel IPC wired \u2713');
 }
 // ── Application lifecycle ──────────────────────────────────────
 let mainWindow = null;
@@ -1571,7 +1585,7 @@ let veAgentId = null; // VE agent ID (from enrollment)
 app.whenReady().then(async () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║   CROCbox v1.0.0-beta.12 — Green Shield       ║');
+  console.log('  ║   CROCbox v1.0.0-beta.10 — Green Shield       ║');
   console.log('  ║   The Agent Trust Layer for OpenClaw  ║');
   console.log('  ║   Shield Scoring Engine Edition       ║');
   console.log('  ╚══════════════════════════════════════╝');
@@ -1761,7 +1775,7 @@ app.whenReady().then(async () => {
     return;
   }
 
-  // Step 4: Start the HTTP+WS Proxy (A.7 + A.8)
+  // Step 4: Start the HTTP+WS Proxy (A.7 + A.8 + A.10-R)
   var deviceId = getCROCboxDeviceId();
   try {
     proxyServer = await startProxy({ token: gatewayToken, deviceId: deviceId, scenario: installScenario });
@@ -1857,7 +1871,7 @@ app.whenReady().then(async () => {
       });
       console.log('[CROCbox] Account activation completed ✓');
       // Re-initialize Agent Sync now that account.json has auth credentials
-      try { agentSync.init({ agent_name: 'BigCROC', model: 'anthropic/claude-sonnet-4-6', shield_level: 'green', skill_count: 0 }); console.log('[CROCbox] Agent Sync re-initialized after activation (enabled=' + agentSync.isEnabled() + ')'); } catch(e) { console.warn('[CROCbox] Agent Sync re-init failed:', e.message); }
+      try { agentSync.init({ agent_name: 'BigCROC', model: 'anthropic/claude-sonnet-4-20250514', shield_level: 'green', skill_count: 0 }); console.log('[CROCbox] Agent Sync re-initialized after activation (enabled=' + agentSync.isEnabled() + ')'); } catch(e) { console.warn('[CROCbox] Agent Sync re-init failed:', e.message); }
       // B4: Restart Gateway so it reads the new auth-profiles.json
       if (bundledGatewayProcess) {
         console.log('[CROCbox] Restarting Gateway to load API key...');
@@ -1886,8 +1900,8 @@ app.whenReady().then(async () => {
   mainWindow = createWindow(gatewayConnection, installScenario, gatewayToken);
   console.log('[CROCbox] Application window created ✓');
 
-  // Step 7: Register IPC handlers
-  registerIPC(mainWindow);
+  // Step 7: Wire Yellow Shield consent IPC (A.11)
+  wireConsentIPC(mainWindow);
   // Step 7b: Start Green Shield consent server (CBE — Consent Before Execution)
   startGreenShieldServer();
   // Step 7c: Initialize Agent Sync (forwards consent decisions to opn.li
@@ -1896,7 +1910,7 @@ app.whenReady().then(async () => {
   try {
     agentSync.init({
       agent_name: 'BigCROC',
-      model: 'anthropic/claude-sonnet-4-6',
+      model: 'anthropic/claude-sonnet-4-20250514',
       shield_level: 'green',
       skill_count: 0
     });
@@ -1919,185 +1933,10 @@ app.whenReady().then(async () => {
       mainWindow.webContents.send('crocbox:green-consent-timeout', timeoutData);
     }
   });
-  // RE-1: Handle Green Shield chain receipt (or NOT RECORDED notice) to renderer
-  setReceiptCallback(function(receiptData) {
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
-      console.log('[CROCbox] Green Shield: receipt to renderer (recorded=' + receiptData.recorded + ' id=' + receiptData.requestId + ')');
-      mainWindow.webContents.send('crocbox:green-consent-receipt', receiptData);
-    } else {
-      console.error('[CROCbox] Green Shield: window gone — receipt not shown (recorded=' + receiptData.recorded + ')');
-    }
-  });
-
-  // Step 5: a standing rule already decided — show the receipt, skip the question
-  setRuleAppliedCallback(function(ruleData) {
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
-      console.log('[CROCbox] Green Shield: rule applied to renderer (decision=' + ruleData.decision +
-                  ' rule=' + ruleData.rule_id + ')');
-      mainWindow.webContents.send('crocbox:green-consent-rule-applied', ruleData);
-    } else {
-      console.error('[CROCbox] Green Shield: window gone — rule receipt not shown');
-    }
-  });
-
   // Handle Green Shield consent decisions from renderer (A.12)
   ipcMain.handle('crocbox:green-consent-resolve', function(_event, requestId, decision) {
     console.log('[CROCbox] Green Shield IPC: received decision from renderer — requestId=' + requestId + ' decision=' + decision);
     return resolveGreenConsent(requestId, decision);
-  });
-
-  // S3: List active rules for the Review Rules panel
-  ipcMain.handle('crocbox:list-rules', function() {
-    return new Promise(function(resolve) {
-      var CONSENT_SERVER_URL = process.env.CONSENT_SERVER_URL || '';
-      var CONSENT_SUBMIT_SECRET = process.env.CONSENT_SUBMIT_SECRET || '';
-      if (!CONSENT_SERVER_URL || !CONSENT_SUBMIT_SECRET) {
-        resolve({ ok: false, error: 'No consent server credentials' });
-        return;
-      }
-      var url = new (require('url').URL)(CONSENT_SERVER_URL + '/v1/rules/list');
-      var https = require('https');
-      var req = https.request({
-        hostname: url.hostname,
-        port: url.port || 443,
-        path: url.pathname,
-        method: 'GET',
-        headers: { 'Authorization': 'Bearer ' + CONSENT_SUBMIT_SECRET },
-        timeout: 10000
-      }, function(res) {
-        var body = '';
-        res.on('data', function(chunk) { body += chunk; });
-        res.on('end', function() {
-          try {
-            resolve(JSON.parse(body));
-          } catch (e) {
-            resolve({ ok: false, error: 'Bad response' });
-          }
-        });
-      });
-      req.on('error', function(err) { resolve({ ok: false, error: err.message }); });
-      req.on('timeout', function() { req.destroy(); resolve({ ok: false, error: 'Timed out' }); });
-      req.end();
-    });
-  });
-
-  // S3: Revoke a rule from the Review Rules panel
-  ipcMain.handle('crocbox:revoke-rule', function(_event, ruleId) {
-    return new Promise(function(resolve) {
-      var CONSENT_SERVER_URL = process.env.CONSENT_SERVER_URL || '';
-      var CONSENT_SUBMIT_SECRET = process.env.CONSENT_SUBMIT_SECRET || '';
-      if (!CONSENT_SERVER_URL || !CONSENT_SUBMIT_SECRET) {
-        resolve({ ok: false, error: 'No consent server credentials' });
-        return;
-      }
-      var payload = JSON.stringify({ rule_id: ruleId });
-      var url = new (require('url').URL)(CONSENT_SERVER_URL + '/v1/rules/revoke');
-      var https = require('https');
-      var req = https.request({
-        hostname: url.hostname,
-        port: url.port || 443,
-        path: url.pathname,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + CONSENT_SUBMIT_SECRET,
-          'Content-Length': Buffer.byteLength(payload)
-        },
-        timeout: 10000
-      }, function(res) {
-        var body = '';
-        res.on('data', function(chunk) { body += chunk; });
-        res.on('end', function() {
-          try {
-            var result = JSON.parse(body);
-            console.log('[CROCbox] revoke-rule: ' + (result.ok ? 'revoked ' + ruleId : 'failed'));
-            resolve(result);
-          } catch (e) {
-            resolve({ ok: false, error: 'Bad response' });
-          }
-        });
-      });
-      req.on('error', function(err) { resolve({ ok: false, error: err.message }); });
-      req.on('timeout', function() { req.destroy(); resolve({ ok: false, error: 'Timed out' }); });
-      req.write(payload);
-      req.end();
-    });
-  });
-
-  // S3: Open My Rules panel in the renderer
-  ipcMain.handle('crocbox:open-my-rules', function() {
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.webContents) {
-      mainWindow.webContents.send('crocbox:open-my-rules');
-    }
-  });
-
-  // S3: Create a standing rule from the five-choice card
-  ipcMain.handle('crocbox:create-rule', function(_event, ruleData) {
-    return new Promise(function(resolve) {
-      var CONSENT_SERVER_URL = process.env.CONSENT_SERVER_URL || '';
-      var CONSENT_SUBMIT_SECRET = process.env.CONSENT_SUBMIT_SECRET || '';
-
-      if (!CONSENT_SERVER_URL || !CONSENT_SUBMIT_SECRET) {
-        console.error('[CROCbox] create-rule: no consent server credentials');
-        resolve({ ok: false, error: 'No consent server credentials' });
-        return;
-      }
-
-      var payload = JSON.stringify({
-        action_type: ruleData.action_type,
-        decision: ruleData.decision,
-        rule_sentence: ruleData.rule_sentence,
-        expires_at: ruleData.expires_at || undefined
-      });
-
-      var url = new (require('url').URL)(CONSENT_SERVER_URL + '/v1/rules/create');
-      var https = require('https');
-
-      var req = https.request({
-        hostname: url.hostname,
-        port: url.port || 443,
-        path: url.pathname,
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + CONSENT_SUBMIT_SECRET,
-          'Content-Length': Buffer.byteLength(payload)
-        },
-        timeout: 10000
-      }, function(res) {
-        var body = '';
-        res.on('data', function(chunk) { body += chunk; });
-        res.on('end', function() {
-          try {
-            var result = JSON.parse(body);
-            if (res.statusCode >= 200 && res.statusCode < 300 && !result.error) {
-              console.log('[CROCbox] create-rule: rule created — ' + (result.rule_id || 'ok'));
-              resolve({ ok: true, rule_id: result.rule_id || null });
-            } else {
-              console.error('[CROCbox] create-rule: server returned — ' + body.substring(0, 200));
-              resolve({ ok: false, error: result.error || ('HTTP ' + res.statusCode) });
-            }
-          } catch (e) {
-            console.error('[CROCbox] create-rule: bad response — ' + body.substring(0, 200));
-            resolve({ ok: false, error: 'Bad response from consent server' });
-          }
-        });
-      });
-
-      req.on('error', function(err) {
-        console.error('[CROCbox] create-rule: request failed — ' + err.message);
-        resolve({ ok: false, error: 'Could not reach consent server' });
-      });
-
-      req.on('timeout', function() {
-        req.destroy();
-        console.error('[CROCbox] create-rule: timed out');
-        resolve({ ok: false, error: 'Consent server timed out' });
-      });
-
-      req.write(payload);
-      req.end();
-    });
   });
   setGreenShieldActive(true);
   greenShieldActive = true;
@@ -2144,11 +1983,7 @@ app.whenReady().then(async () => {
       veAgentId = savedAccount.agent_id;
       console.log('[CROCbox] Saved account found: ' + savedAccount.email + ' (agent_id=' + savedAccount.agent_id + ')');
     }
-  } catch (e) {
-    // No saved account — auto-launch activation flow
-    console.log("[CROCbox] No account.json found — launching activation flow");
-    startActivationFlow(mainWindow);
-  }
+  } catch (e) { /* no saved account — first launch */ }
   // Step 10: Check VE enrollment status (TN-4, TN-5, TN-6)
   console.log('[CROCbox] Checking Trust Network enrollment...');
   await checkVeEnrollment();
@@ -2160,7 +1995,7 @@ app.whenReady().then(async () => {
   }, 3000);
 
   startupComplete = true;
-  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.12 ready');
+  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.10 ready');
   console.log('');
 });
 app.on('window-all-closed', async () => {
