@@ -1,5 +1,5 @@
 /**
- * CROCbox v1.0.0-beta.13 — Electron Main Process
+ * CROCbox v1.0.0-beta.14 — Electron Main Process
  * 
  * Phase 1: Gateway Connection (with auto-start + native error dialogs)
  * Phase 2: BrowserWindow + Control UI
@@ -821,7 +821,7 @@ async function completeActivation(win, accountId, email, apiKey, provider, acces
 
   // Step 1b: Write CROCBOX_MEMBER_ID to .env so Green Shield gate has it on next launch
   try {
-    var envPath = process.env.CROCBOX_ENV_PATH || require("path").join(require("os").homedir(), "opnli", "crocbox", ".env");
+    var envPath = process.env.CROCBOX_ENV_PATH || require("path").join(require("os").homedir(), "Library", "Application Support", "CROCbox", ".env");
     var envContent = "";
     try { envContent = fs.readFileSync(envPath, "utf8"); } catch(e) {}
     if (envContent.indexOf("CROCBOX_MEMBER_ID") === -1) {
@@ -833,6 +833,11 @@ async function completeActivation(win, accountId, email, apiKey, provider, acces
       fs.writeFileSync(envPath, envContent, "utf8");
       console.log("[CROCbox] CROCBOX_MEMBER_ID updated in .env");
     }
+    // CONSENT_SERVER_URL and CONSENT_SUBMIT_SECRET — written during activation so Green Shield gate connects
+    if (envContent.indexOf("CONSENT_SERVER_URL") === -1) { envContent += "CONSENT_SERVER_URL=https://consent.opn.li\n"; }
+    if (envContent.indexOf("CONSENT_SUBMIT_SECRET") === -1) { envContent += "CONSENT_SUBMIT_SECRET=07a1aaa6e0bb5e0347311f61387d40460140da5f5d1e0c705abad7a71254f849\n"; }
+    fs.writeFileSync(envPath, envContent, "utf8");
+    console.log("[CROCbox] .env written: MEMBER_ID + CONSENT_SERVER_URL + CONSENT_SUBMIT_SECRET");
   } catch(envErr) { console.log("[CROCbox] .env write failed: " + envErr.message); }
 
   // Step 2: Write API key UNCONDITIONALLY (do not gate on VE enrollment)
@@ -1405,7 +1410,7 @@ function registerIPC(win) {
     require('electron').dialog.showMessageBoxSync({
       type: 'info',
       title: 'About CROCbox',
-      message: 'CROCbox v1.0.0-beta.13',
+      message: 'CROCbox v1.0.0-beta.14',
       detail: 'The Agent Trust Layer for OpenClaw\n\nMy data + Your AI + My control = Living Intelligence\n\n© 2026 Openly Personal Networks, Inc. (Opn.li)\nhttps://opn.li'
     });
     return true;
@@ -1571,7 +1576,7 @@ let veAgentId = null; // VE agent ID (from enrollment)
 app.whenReady().then(async () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║   CROCbox v1.0.0-beta.13 — Green Shield       ║');
+  console.log('  ║   CROCbox v1.0.0-beta.14 — Green Shield       ║');
   console.log('  ║   The Agent Trust Layer for OpenClaw  ║');
   console.log('  ║   Shield Scoring Engine Edition       ║');
   console.log('  ╚══════════════════════════════════════╝');
@@ -2160,7 +2165,7 @@ app.whenReady().then(async () => {
   }, 3000);
 
   startupComplete = true;
-  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.13 ready');
+  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.14 ready');
   console.log('');
 });
 app.on('window-all-closed', async () => {
