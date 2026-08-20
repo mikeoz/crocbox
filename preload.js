@@ -157,8 +157,29 @@ function renderGreenShieldPanel() {
   var old = document.getElementById('crocbox-consent-overlay');
   if (old) old.remove();
 
+  // Update Trust Bar state label
+  var barState = document.getElementById('crocbox-bar-state');
+  if (barState) {
+    if (gsState.current === 'asking') {
+      barState.textContent = 'Asking';
+      barState.style.color = '#10B981';
+    } else if (gsState.current === 'receipt') {
+      barState.textContent = 'Receipt';
+      barState.style.color = '#94A3B8';
+    } else {
+      barState.textContent = 'Guarded';
+      barState.style.color = '#4CAF50';
+    }
+  }
+
   var overlay = document.createElement('div');
   overlay.id = 'crocbox-consent-overlay';
+
+  // Guarded state: no panel — Trust Bar shows GREEN indicator
+  if (gsState.current === 'guarded') {
+    return;
+  }
+
 
   if (gsState.current === 'asking' && gsState.pending) {
     overlay.className = 'gs-asking';
@@ -843,6 +864,13 @@ ipcRenderer.on('crocbox:trust-bar', function(_event, data) {
     shieldDiv.style.cssText = 'display:flex;align-items:center;gap:6px;cursor:pointer;';
     shieldDiv.innerHTML = '<svg width="18" height="22" viewBox="0 0 100 120" style="display:inline-block"><path d="M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z" fill="' + svgOuter + '" stroke="' + svgStroke + '" stroke-width="3"/><path d="M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z" fill="' + svgMid + '"/><path d="M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z" fill="' + svgInner + '"/></svg><span style="font-size:11px;color:' + colorHex + ';font-weight:500;">' + shieldLabel + '</span>';
     bar.appendChild(shieldDiv);
+
+    // State indicator — shows Guarded/Asking in Trust Bar
+    var stateDiv = document.createElement('span');
+    stateDiv.id = 'crocbox-bar-state';
+    stateDiv.style.cssText = 'font-size:12px;color:#4CAF50;font-weight:500;margin-left:2px;';
+    stateDiv.textContent = 'Guarded';
+    bar.appendChild(stateDiv);
 
     // ── Create Shield Detail panel overlay ──
     var detailPanel = document.getElementById('crocbox-shield-detail');
