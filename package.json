@@ -73,7 +73,9 @@
       "package.json",
       "Trust.md",
       "node_modules/**/*",
-      "ai-bridge.js"
+      "ai-bridge.js",
+      "connect-rewrite.js",
+      "connect-rewrite-private.js"
     ],
     "extraResources": [
       {
