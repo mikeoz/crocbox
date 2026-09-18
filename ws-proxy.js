@@ -38,6 +38,9 @@ process.stdout.on('error', (err) => { if (err.code === 'EPIPE') process.exit(0);
 process.stderr.on('error', (err) => { if (err.code === 'EPIPE') process.exit(0); });
 
 const WebSocket = require('ws');
+// Connect rewrite: private impl if present, otherwise open-source stub
+var connectRewrite;
+try { connectRewrite = require('./connect-rewrite-private'); } catch(e) { connectRewrite = require('./connect-rewrite'); }
 const http = require('http');
 const crypto = require('crypto');
 // ── Configuration ──────────────────────────────────────────────
@@ -217,24 +220,12 @@ function startProxy(config) {
             const label = msg.type === 'req' ? `req:${msg.method}` : msg.type;
             console.log(`[ws-proxy] C->G (${connId}): ${label}`);
             // A.8: Rewrite connect request for proxy pass-through
+            // The specific rewrite strategy is loaded from connect-rewrite module.
+            // See connect-rewrite.js (open-source stub) or connect-rewrite-private.js.
             if (msg.type === 'req' && msg.method === 'connect') {
-              if (proxyScenario === 'EXISTING_OC') {
-                // Existing user: pass through the Control UI's native connect request.
-                // The #token= fragment gives the UI operator-level credentials.
-                // Inject token into auth but preserve client type and device identity.
-                if (!msg.params.auth || !msg.params.auth.token) {
-                  msg.params.auth = { token: authToken };
-                }
-                forwardData = JSON.stringify(msg);
-                console.log(`[ws-proxy] EXISTING_OC: pass-through connect (client=${msg.params.client.id})`);
-              } else {
-                msg.params.auth = { token: authToken };
-                msg.params.client.id = 'openclaw-macos';
-                msg.params.client.mode = 'ui';
-                delete msg.params.device;
-                forwardData = JSON.stringify(msg);
-                console.log(`[ws-proxy] Rewrote connect: openclaw-macos + token auth`);
-              }
+              var rewritten = connectRewrite.rewriteConnectForProxy(msg, authToken, proxyScenario);
+              forwardData = JSON.stringify(rewritten);
+              console.log('[ws-proxy] Connect rewritten for proxy pass-through');
             }
           } catch (e) {
             console.log(`[ws-proxy] C->G (${connId}): [unparseable]`);

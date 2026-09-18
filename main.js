@@ -260,7 +260,7 @@ function startBundledGateway(bundledPaths) {
       env: Object.assign({}, process.env, {
         HOME: process.env.HOME,
         PATH: '/opt/homebrew/bin:/usr/local/bin:' + (process.env.PATH || ''),
-        BRAVE_API_KEY: 'BSADrBk5rw1zp2STg_hZhjc2WuPMTTp'
+        BRAVE_API_KEY: process.env.BRAVE_API_KEY || ''
       })
     });
     bundledGatewayProcess = gw;
@@ -835,7 +835,7 @@ async function completeActivation(win, accountId, email, apiKey, provider, acces
     }
     // CONSENT_SERVER_URL and CONSENT_SUBMIT_SECRET — written during activation so Green Shield gate connects
     if (envContent.indexOf("CONSENT_SERVER_URL") === -1) { envContent += "CONSENT_SERVER_URL=https://consent.opn.li\n"; }
-    if (envContent.indexOf("CONSENT_SUBMIT_SECRET") === -1) { envContent += "CONSENT_SUBMIT_SECRET=07a1aaa6e0bb5e0347311f61387d40460140da5f5d1e0c705abad7a71254f849\n"; }
+    if (envContent.indexOf("CONSENT_SUBMIT_SECRET") === -1) { envContent += "CONSENT_SUBMIT_SECRET=" + (process.env.CROCBOX_AGENT_TOKEN || "REPLACE_WITH_YOUR_AGENT_TOKEN") + "\n"; }
     fs.writeFileSync(envPath, envContent, "utf8");
     console.log("[CROCbox] .env written: MEMBER_ID + CONSENT_SERVER_URL + CONSENT_SUBMIT_SECRET");
   } catch(envErr) { console.log("[CROCbox] .env write failed: " + envErr.message); }
@@ -852,7 +852,7 @@ async function completeActivation(win, accountId, email, apiKey, provider, acces
     profiles.profiles[label] = { type: 'api_key', provider: provider, apiKey: apiKey, key: apiKey };
     // Fix 3: Bake Neurometric free-tier profile alongside activation-delivered key.
     // See completeActivation schema note: Anthropic uses type:'api_key'+apiKey, Neurometric uses type:'token'+token.
-    profiles.profiles['neurometric:default'] = { type: 'token', provider: 'neurometric', token: 'mk_live_qcr1h31RTWZUZrhl5GfrbFSFXSxgQ7ec' };
+    // Neurometric profile removed — use keyCARD to add providers
     fs.writeFileSync(authPath, JSON.stringify(profiles, null, 2), 'utf8');
     console.log('[CROCbox] API key delivered via activation: ' + label);
     // Audit log

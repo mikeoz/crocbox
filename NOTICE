@@ -1,0 +1,14 @@
+CROCbox — The Reference Implementation of the Human Consent Layer for OpenClaw
+
+Copyright 2026 Opnli Corporation (opn.li)
+
+This software implements the Human Consent Layer (HCL) specification.
+See: https://github.com/mikeoz/human-consent-layer
+
+Certain enforcement mechanisms used in this implementation are the subject of
+Provisional Patent Application #63/992,579, filed February 27, 2026.
+These mechanisms are abstracted behind clean interfaces in this open-source
+release. The HCL specification, consent flow, audit chain, and five-choice
+consent model are open and available for any implementation.
+
+Part of the Open Consent project: https://github.com/mikeoz/open-consent

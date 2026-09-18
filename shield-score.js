@@ -337,54 +337,18 @@ function computeShieldScore(catalogTools, consentLevel, mcpSkillCount) {
  * Returns HTML string for injection via executeJavaScript.
  */
 function getShieldDetailHTML(score, level) {
+  // Shield detail HTML generation removed from open-source release.
+  // The scoring results (color, label, nhbSummary, framework scores)
+  // are available in the score object for any UI to render.
+  // See the Human Consent Layer spec for the progressive disclosure model.
   level = level || 'beginner';
-  const colorHex = score.color === 'green' ? '#4CAF50' : 
-                   score.color === 'yellow' ? '#d4a017' : '#e53935';
-  function _sv(sz) { var c = score.color, o = c==='green'?'#16A34A':c==='yellow'?'#CA8A04':'#DC2626', n = c==='green'?'#22C55E':c==='yellow'?'#EAB308':'#EF4444', sw = sz<=20?5:sz<=36?3:1.5; return '<svg width="'+sz+'" height="'+Math.round(sz*1.2)+'" viewBox="0 0 100 120" style="display:inline-block"><path d="M50 5 L90 22 C90 58 74 80 50 95 C26 80 10 58 10 22 Z" fill="#58585C" stroke="#707074" stroke-width="'+sw+'"/><path d="M50 14 L82 28 C82 58 69 76 50 88 C31 76 18 58 18 28 Z" fill="'+o+'"/><path d="M50 24 L73 35 C73 56 64 70 50 79 C36 70 27 56 27 35 Z" fill="'+n+'"/></svg>'; }
-
-  if (level === 'beginner') {
-    return `<div style="padding:24px">
-      <div style="text-align:center;margin-bottom:12px">${_sv(48)}</div>
-      <div style="font-size:20px;font-weight:700;text-align:center;color:${colorHex};margin-bottom:16px;text-transform:uppercase">${score.color} Shield</div>
-      <div style="font-size:15px;line-height:1.7;color:#ccc">${score.nhbSummary}</div>
-    </div>`;
-  }
-
-  if (level === 'intermediate') {
-    return `<div style="padding:24px">
-      <div style="text-align:center;margin-bottom:8px">${_sv(36)}</div>
-      <div style="font-size:18px;font-weight:700;text-align:center;color:${colorHex};margin-bottom:16px;text-transform:uppercase">${score.color} Shield — Why This Score</div>
-      <div style="font-size:13px;line-height:1.8;color:#ccc">
-        <div style="margin-bottom:8px">• ${score.meta.nhbText} (Design Risk: ${score.meta.hitlRequired ? 'elevated' : 'managed'})</div>
-        <div style="margin-bottom:8px">• ${score.aws.nhbText} (Autonomy: Scope ${score.aws.scope})</div>
-        <div style="margin-bottom:8px">• Tool catalog classified (${score.owasp.classified}/${score.owasp.toolCount} known${score.owasp.unknown > 0 ? ', ' + score.owasp.unknown + ' unrecognized' : ''})</div>
-        <div style="margin-bottom:8px">• Consent: ${score.consentLevel === 'green' ? 'Before Execution' : score.consentLevel === 'yellow' ? 'Before Delivery' : 'None'}</div>
-      </div>
-      <div style="margin-top:12px;padding:10px;background:rgba(255,255,255,0.05);border-radius:6px;font-size:11px;color:#888">
-        Shield factors: ${score.owasp.classified} tools classified | Consent: ${score.consentLevel === 'yellow' ? 'Before Delivery' : 'Before Execution'} | Audit: Active
-      </div>
-    </div>`;
-  }
-
-  // Expert level — full matrix
-  const asiEntries = Object.entries(score.owasp.asiCounts)
-    .map(([k, v]) => k + '(' + v + ')')
-    .join(', ') || 'none';
-
-  return `<div style="padding:20px">
-    <div style="text-align:center;margin-bottom:6px">${_sv(28)}</div>
-    <div style="font-size:16px;font-weight:700;text-align:center;color:${colorHex};margin-bottom:14px;text-transform:uppercase">${score.color} Shield — Full Assessment</div>
-    <div style="font-size:12px;line-height:1.8;color:#bbb;font-family:monospace">
-      <div style="margin-bottom:4px"><strong style="color:#999">OWASP Surface:</strong> ${asiEntries}</div>
-      <div style="margin-bottom:4px"><strong style="color:#999">AWS Scope:</strong> ${score.aws.scope} (${score.aws.label})</div>
-      <div style="margin-bottom:4px"><strong style="color:#999">Meta Rule of Two:</strong> ${score.meta.config} ${score.meta.hitlRequired ? '— HITL mandatory' : '— satisfied'}</div>
-      <div style="margin-bottom:4px"><strong style="color:#999">Consent Level:</strong> ${score.consentLevel === 'yellow' ? 'Yellow (CBD)' : score.consentLevel === 'green' ? 'Green (CBE)' : 'None'} ${score.consentLevel === 'yellow' ? '— Green requires exec.approval broadcast' : ''}</div>
-      <div style="margin-bottom:4px"><strong style="color:#999">Catalog:</strong> ${score.owasp.classified} classified, ${score.owasp.unknown} pending | Hash: ${score.catalogHash.substring(0, 12)}...</div>
-      <div style="margin-bottom:4px"><strong style="color:#999">MCP Skills:</strong> ${score.mcpSkillCount} installed</div>
-      <div style="margin-bottom:4px"><strong style="color:#999">Audit:</strong> Active | Chain: intact</div>
-      <div style="margin-top:8px;color:#666">Scored: ${score.timestamp}</div>
-    </div>
-  </div>`;
+  var colorHex = score.color === 'green' ? '#4CAF50' :
+                 score.color === 'yellow' ? '#d4a017' : '#e53935';
+  return '<div style="padding:24px;text-align:center">'
+    + '<div style="font-size:20px;font-weight:700;color:' + colorHex + ';text-transform:uppercase;margin-bottom:16px">'
+    + score.color + ' Shield</div>'
+    + '<div style="font-size:15px;line-height:1.7;color:#ccc">' + score.nhbSummary + '</div>'
+    + '</div>';
 }
 
 /**

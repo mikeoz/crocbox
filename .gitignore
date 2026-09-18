@@ -16,3 +16,6 @@ bundled-openclaw.tar.gz
 # Embedded API key — never commit
 .api-key
 agent_key.pem
+
+# Patented mechanism — not open-sourced
+connect-rewrite-private.js
