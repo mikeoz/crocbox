@@ -37,10 +37,10 @@ const GREEN_SHIELD_PORT = 18793;
 const CONSENT_TIMEOUT_MS = 60000;
 
 // OTN Consent Server config (from .env)
-const CONSENT_SERVER_URL = process.env.CONSENT_SERVER_URL || '';
-const CONSENT_SUBMIT_SECRET = process.env.CONSENT_SUBMIT_SECRET || '';
-const CROCBOX_MEMBER_ID = process.env.CROCBOX_MEMBER_ID || '';
-const OTN_CONNECTED = !!(CONSENT_SERVER_URL && CONSENT_SUBMIT_SECRET && CROCBOX_MEMBER_ID);
+let CONSENT_SERVER_URL = process.env.CONSENT_SERVER_URL || '';
+let CONSENT_SUBMIT_SECRET = process.env.CONSENT_SUBMIT_SECRET || '';
+let CROCBOX_MEMBER_ID = process.env.CROCBOX_MEMBER_ID || '';
+let OTN_CONNECTED = !!(CONSENT_SERVER_URL && CONSENT_SUBMIT_SECRET && CROCBOX_MEMBER_ID);
 
 // ── State ──────────────────────────────────────────────────────
 const pendingGreenConsents = new Map();
@@ -586,14 +586,205 @@ function emitReceipt(requestId, otnPromise, decision) {
   });
 }
 
+
+// ── Remote Consent Polling (Item 39) ───────────────────────────
+// ai-proxy submits tool consent holds to the Consent Server with
+// source_product: "crocbox". This polling loop finds those holds
+// and surfaces them through the same consentCallback that the
+// local gate uses — so preload.js shows the same five-choice card.
+
+const REMOTE_POLL_MS = 1500;
+const pendingRemoteConsents = new Map();
+let remotePolling = false;
+let remotePollTimer = null;
+
+function startRemoteConsentPolling() {
+  if (!OTN_CONNECTED) {
+    console.log('[GreenShield] Remote polling: skipped (OTN not configured)');
+    return;
+  }
+  if (remotePolling) return;
+  remotePolling = true;
+  console.log('[GreenShield] Remote polling: started (every ' + REMOTE_POLL_MS + 'ms)');
+  schedulePoll();
+}
+
+function stopRemoteConsentPolling() {
+  remotePolling = false;
+  if (remotePollTimer) {
+    clearTimeout(remotePollTimer);
+    remotePollTimer = null;
+  }
+  // Timeout any pending remote consents
+  for (var [holdId, entry] of pendingRemoteConsents) {
+    clearTimeout(entry.timer);
+    writeLocalAudit(holdId, entry.toolName, 'timeout', {});
+    if (typeof timeoutCallback === 'function') {
+      timeoutCallback({ requestId: holdId, toolName: entry.toolName });
+    }
+  }
+  pendingRemoteConsents.clear();
+  console.log('[GreenShield] Remote polling: stopped');
+}
+
+function schedulePoll() {
+  if (!remotePolling) return;
+  remotePollTimer = setTimeout(function() {
+    pollRemoteConsent();
+  }, REMOTE_POLL_MS);
+}
+
+function pollRemoteConsent() {
+  if (!remotePolling) return;
+
+  var pendingUrl = new URL(CONSENT_SERVER_URL + '/v1/pending');
+  pendingUrl.searchParams.set('member_id', CROCBOX_MEMBER_ID);
+
+  var req = https.request({
+    hostname: pendingUrl.hostname,
+    port: pendingUrl.port || 443,
+    path: pendingUrl.pathname + pendingUrl.search,
+    method: 'GET',
+    headers: { 'Authorization': 'Bearer ' + CONSENT_SUBMIT_SECRET },
+    timeout: 10000
+  }, function(res) {
+    var body = '';
+    res.on('data', function(chunk) { body += chunk; });
+    res.on('end', function() {
+      try {
+        var result = JSON.parse(body);
+        var holds = result.pending || result;
+        if (Array.isArray(holds)) {
+          var crocboxHolds = holds.filter(function(h) {
+            return h.source_product === 'crocbox';
+          });
+          for (var i = 0; i < crocboxHolds.length; i++) {
+            var hold = crocboxHolds[i];
+            var holdId = hold.id || hold.request_id;
+            if (!holdId) continue;
+            // Skip if we already surfaced this hold, or if a local consent
+            // is already pending (avoid showing two cards at once)
+            if (pendingRemoteConsents.has(holdId)) continue;
+            if (pendingGreenConsents.size > 0) continue;
+
+            console.log('[GreenShield] Remote hold found: ' + holdId + ' action=' + hold.action_type + ' target=' + (hold.target || ''));
+
+            var toolName = hold.action_type || hold.action || 'unknown';
+            var toolParams = { target: hold.target || '', summary: hold.summary_text || '' };
+
+            // Set a timeout for this remote hold
+            var timer = setTimeout((function(hid, tn) {
+              return function() {
+                if (pendingRemoteConsents.has(hid)) {
+                  pendingRemoteConsents.delete(hid);
+                  writeLocalAudit(hid, tn, 'timeout', {});
+                  console.log('[GreenShield] Remote hold timed out: ' + hid);
+                  if (typeof timeoutCallback === 'function') {
+                    timeoutCallback({ requestId: hid, toolName: tn });
+                  }
+                }
+              };
+            })(holdId, toolName), CONSENT_TIMEOUT_MS);
+
+            pendingRemoteConsents.set(holdId, {
+              holdId: holdId,
+              toolName: toolName,
+              params: toolParams,
+              hold: hold,
+              timer: timer
+            });
+
+            // Fire the same callback that local consent uses
+            notifyConsentRequest(holdId, toolName, toolParams);
+          }
+        }
+      } catch (e) {
+        console.error('[GreenShield] Remote poll parse error: ' + e.message);
+      }
+      schedulePoll();
+    });
+  });
+
+  req.on('error', function(err) {
+    console.error('[GreenShield] Remote poll error: ' + err.message);
+    schedulePoll();
+  });
+
+  req.on('timeout', function() {
+    req.destroy();
+    console.error('[GreenShield] Remote poll timed out');
+    schedulePoll();
+  });
+
+  req.end();
+}
+
+function resolveRemoteConsent(holdId, decision) {
+  var entry = pendingRemoteConsents.get(holdId);
+  if (!entry) {
+    console.log('[GreenShield] resolveRemoteConsent: holdId ' + holdId + ' not found');
+    return { ok: false, error: 'not-found' };
+  }
+
+  clearTimeout(entry.timer);
+  pendingRemoteConsents.delete(holdId);
+
+  writeLocalAudit(holdId, entry.toolName, decision, entry.params);
+
+  // Call /v1/decide on the Consent Server directly
+  decideOnOTN(holdId, decision);
+
+  console.log('[GreenShield] Remote resolved: ' + decision + ' tool=' + entry.toolName + ' holdId=' + holdId);
+
+  // Emit receipt — for remote holds, the chain write happens server-side
+  // when /v1/decide is called. We report the decision and let the receipt
+  // callback handle the "recorded" status via polling or the decide response.
+  if (typeof receiptCallback === 'function') {
+    try {
+      receiptCallback({
+        requestId: holdId,
+        decision: decision,
+        audit_hash: null,
+        recorded: false,
+        reason: 'remote-decide-sent'
+      });
+    } catch (e) {
+      console.error('[GreenShield] Remote receipt callback threw: ' + e.message);
+    }
+  }
+
+  return { ok: true, decision: decision };
+}
+
+
+// ── Reinitialize after activation (Item 21) ───────────────────
+// Called by main.js after completeActivation sets process.env values.
+// Re-reads config from process.env, restarts gate and polling if
+// the OTN credentials are now available.
+function reinitializeGate() {
+  CONSENT_SERVER_URL = process.env.CONSENT_SERVER_URL || '';
+  CONSENT_SUBMIT_SECRET = process.env.CONSENT_SUBMIT_SECRET || '';
+  CROCBOX_MEMBER_ID = process.env.CROCBOX_MEMBER_ID || '';
+  OTN_CONNECTED = !!(CONSENT_SERVER_URL && CONSENT_SUBMIT_SECRET && CROCBOX_MEMBER_ID);
+  console.log('[GreenShield] Reinitialize: OTN_CONNECTED=' + OTN_CONNECTED + ' member_id=' + CROCBOX_MEMBER_ID);
+  if (OTN_CONNECTED && !remotePolling) {
+    startRemoteConsentPolling();
+  }
+}
+
 module.exports = {
   setReceiptCallback,
   setRuleAppliedCallback,
   startGreenShieldServer,
   stopGreenShieldServer,
   resolveGreenConsent,
+  resolveRemoteConsent,
+  startRemoteConsentPolling,
+  stopRemoteConsentPolling,
   setConsentCallback,
   setTimeoutCallback,
   GREEN_SHIELD_PORT,
-  pendingGreenConsents
+  pendingGreenConsents,
+  pendingRemoteConsents,
+  reinitializeGate
 };

@@ -1,7 +1,7 @@
 {
   "name": "crocbox",
-  "version": "1.0.0-beta.14",
-  "description": "CROCbox — The Agent Trust Layer for OpenClaw",
+  "version": "1.0.0-beta.15",
+  "description": "CROCbox \u2014 The Agent Trust Layer for OpenClaw",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -72,7 +72,8 @@
       "agent-sync.js",
       "package.json",
       "Trust.md",
-      "node_modules/**/*"
+      "node_modules/**/*",
+      "ai-bridge.js"
     ],
     "extraResources": [
       {

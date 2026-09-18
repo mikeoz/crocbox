@@ -1,5 +1,5 @@
 /**
- * CROCbox v1.0.0-beta.14 — Electron Main Process
+ * CROCbox v1.0.0-beta.15 — Electron Main Process
  * 
  * Phase 1: Gateway Connection (with auto-start + native error dialogs)
  * Phase 2: BrowserWindow + Control UI
@@ -50,6 +50,7 @@ console.warn = function() { origWarn.apply(console, arguments); stampedWrite('WA
 console.error = function() { origError.apply(console, arguments); stampedWrite('ERR', arguments); };
 const { startProxy, stopProxy, setGreenShieldActive, PROXY_PORT } = require('./ws-proxy');
 const { computeShieldScore, getShieldDetailHTML, parseCatalog } = require('./shield-score');
+const { startBridge, stopBridge } = require('./ai-bridge');
 
 // S3: Parse .env BEFORE requiring green-shield-gate, which reads
 // CONSENT_SERVER_URL, CONSENT_SUBMIT_SECRET, and CROCBOX_MEMBER_ID
@@ -92,7 +93,7 @@ const { computeShieldScore, getShieldDetailHTML, parseCatalog } = require('./shi
   }
 })();
 
-const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, setConsentCallback, setTimeoutCallback, setReceiptCallback, setRuleAppliedCallback, GREEN_SHIELD_PORT } = require('./green-shield-gate');
+const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, resolveRemoteConsent, startRemoteConsentPolling, stopRemoteConsentPolling, reinitializeGate, setConsentCallback, setTimeoutCallback, setReceiptCallback, setRuleAppliedCallback, GREEN_SHIELD_PORT } = require('./green-shield-gate');
 const agentSync = require('./agent-sync');
 if (!process.env.VE_ENDPOINT) { process.env.VE_ENDPOINT = 'https://ve-staging.opn.li'; } // Beta fallback — see GT-17 in SessionCloseout
 const { enroll: veEnroll, verify: veVerify, checkStatus: veCheckStatus } = require('./card_ve_client');
@@ -905,6 +906,25 @@ async function completeActivation(win, accountId, email, apiKey, provider, acces
   } catch (err) {
     console.log('[CROCbox] VE enrollment failed: ' + err.message + ' — staying in local mode');
   }
+
+  // Item 21: Set process.env so Green Shield gate can reinitialize without restart
+  if (memberId) process.env.CROCBOX_MEMBER_ID = memberId;
+  if (!process.env.CONSENT_SERVER_URL) process.env.CONSENT_SERVER_URL = 'https://consent.opn.li';
+  reinitializeGate();
+  console.log('[CROCbox] Green Shield gate reinitialized after activation');
+
+  // Reinitialize Agent Sync with fresh credentials
+  try {
+    agentSync.init({
+      agent_name: 'BigCROC',
+      model: 'anthropic/claude-sonnet-5',
+      shield_level: 'green',
+      skill_count: 0
+    });
+    console.log('[CROCbox] Agent Sync reinitialized after activation (enabled=' + agentSync.isEnabled() + ')');
+  } catch (e) {
+    console.warn('[CROCbox] Agent Sync reinit error (non-fatal):', e.message);
+  }
 }
 
 // ── Trust Activity Viewer ────────────────────────────────────
@@ -1410,7 +1430,7 @@ function registerIPC(win) {
     require('electron').dialog.showMessageBoxSync({
       type: 'info',
       title: 'About CROCbox',
-      message: 'CROCbox v1.0.0-beta.14',
+      message: 'CROCbox v1.0.0-beta.15',
       detail: 'The Agent Trust Layer for OpenClaw\n\nMy data + Your AI + My control = Living Intelligence\n\n© 2026 Openly Personal Networks, Inc. (Opn.li)\nhttps://opn.li'
     });
     return true;
@@ -1576,7 +1596,7 @@ let veAgentId = null; // VE agent ID (from enrollment)
 app.whenReady().then(async () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║   CROCbox v1.0.0-beta.14 — Green Shield       ║');
+  console.log('  ║   CROCbox v1.0.0-beta.15 — Green Shield       ║');
   console.log('  ║   The Agent Trust Layer for OpenClaw  ║');
   console.log('  ║   Shield Scoring Engine Edition       ║');
   console.log('  ╚══════════════════════════════════════╝');
@@ -1722,6 +1742,14 @@ app.whenReady().then(async () => {
     }
   }
   console.log('[CROCbox] Auth token loaded ✓');
+
+  // Step 1.5: Start AI Bridge (local proxy to opn.li ai-proxy)
+  try {
+    startBridge();
+    console.log('[CROCbox] AI Bridge started ✓');
+  } catch (err) {
+    console.error('[CROCbox] AI Bridge start failed: ' + err.message);
+  }
 
   // Step 2: Start Gateway — system auto-start or bundled
   console.log('[CROCbox] Checking Gateway at ' + GATEWAY_URL + '...');
@@ -1895,6 +1923,9 @@ app.whenReady().then(async () => {
   registerIPC(mainWindow);
   // Step 7b: Start Green Shield consent server (CBE — Consent Before Execution)
   startGreenShieldServer();
+  // Step 7b2: Start remote consent polling (Item 39) — polls Consent Server
+  // for tool holds submitted by ai-proxy with source_product: "crocbox"
+  startRemoteConsentPolling();
   // Step 7c: Initialize Agent Sync (forwards consent decisions to opn.li
   // Supabase). Runs AFTER the gate is up and BEFORE any consent card can
   // fire. Disables itself cleanly if account.json is absent (Local Mode).
@@ -1948,7 +1979,14 @@ app.whenReady().then(async () => {
   // Handle Green Shield consent decisions from renderer (A.12)
   ipcMain.handle('crocbox:green-consent-resolve', function(_event, requestId, decision) {
     console.log('[CROCbox] Green Shield IPC: received decision from renderer — requestId=' + requestId + ' decision=' + decision);
-    return resolveGreenConsent(requestId, decision);
+    // Try local first (gateway tool calls), then remote (ai-proxy tool calls)
+    var localResult = resolveGreenConsent(requestId, decision);
+    if (localResult.ok && localResult.note !== 'already-resolved') return localResult;
+    // Not a local hold — check if it is a remote hold from ai-proxy
+    var remoteResult = resolveRemoteConsent(requestId, decision);
+    if (remoteResult.ok) return remoteResult;
+    // Neither local nor remote — already resolved or expired
+    return localResult;
   });
 
   // S3: List active rules for the Review Rules panel
@@ -2165,7 +2203,7 @@ app.whenReady().then(async () => {
   }, 3000);
 
   startupComplete = true;
-  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.14 ready');
+  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.15 ready');
   console.log('');
 });
 app.on('window-all-closed', async () => {
@@ -2184,6 +2222,7 @@ app.on('window-all-closed', async () => {
   if (gatewayConnection && gatewayConnection.ws) {
     gatewayConnection.ws.close();
   }
+  stopBridge();
   if (proxyServer) {
     await stopProxy(proxyServer);
   }
