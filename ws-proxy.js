@@ -138,16 +138,24 @@ function handleHttpRequest(clientReq, clientRes) {
     port: GATEWAY_PORT,
     path: clientReq.url,
     method: clientReq.method,
-    headers: { ...clientReq.headers, host: `${GATEWAY_HOST}:${GATEWAY_PORT}` }
+    // Beta.16: ask for an uncompressed reply so the HTML can be modified safely.
+    headers: { ...clientReq.headers, host: `${GATEWAY_HOST}:${GATEWAY_PORT}`, 'accept-encoding': 'identity' }
   };
   const proxyReq = http.request(options, (proxyRes) => {
     const contentType = proxyRes.headers['content-type'] || '';
     const isHtml = contentType.includes('text/html');
     if (isHtml) {
+      // Beta.16: if the gateway compressed the HTML anyway, decode it before injecting.
+      const zlib = require('zlib');
+      const enc = String(proxyRes.headers['content-encoding'] || '').toLowerCase();
+      let stream = proxyRes;
+      if (enc === 'br') stream = proxyRes.pipe(zlib.createBrotliDecompress());
+      else if (enc === 'gzip') stream = proxyRes.pipe(zlib.createGunzip());
+      else if (enc === 'deflate') stream = proxyRes.pipe(zlib.createInflate());
       let body = '';
-      proxyRes.setEncoding('utf8');
-      proxyRes.on('data', (chunk) => { body += chunk; });
-      proxyRes.on('end', () => {
+      stream.setEncoding('utf8');
+      stream.on('data', (chunk) => { body += chunk; });
+      stream.on('end', () => {
         let modified;
         if (body.includes('<head>')) {
           modified = body.replace('<head>', '<head><style id="crocbox-hide-update">' +

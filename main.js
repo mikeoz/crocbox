@@ -1475,9 +1475,11 @@ function createWindow(gatewayConnection, installScenario, gatewayToken) {
     }
   });
   var loadUrl = PROXY_URL;
-  if (installScenario === 'EXISTING_OC' && gatewayToken) {
-    loadUrl = PROXY_URL + '/#token=' + gatewayToken;
-    console.log('[CROCbox] Loading Control UI from ' + PROXY_URL + ' with token fragment (existing user)');
+  // Beta.16: the 2026.9.6 Control UI takes its gateway token from the #token= fragment
+  // (docs/web/urls.md). The fragment never leaves the window and is stripped after load.
+  if (gatewayToken) {
+    loadUrl = PROXY_URL + '/#token=' + encodeURIComponent(gatewayToken);
+    console.log('[CROCbox] Loading Control UI from ' + PROXY_URL + ' with token fragment');
   } else {
     console.log('[CROCbox] Loading Control UI from ' + PROXY_URL + ' (via proxy)');
   }
