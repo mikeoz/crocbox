@@ -223,9 +223,9 @@ function startProxy(config) {
             // The specific rewrite strategy is loaded from connect-rewrite module.
             // See connect-rewrite.js (open-source stub) or connect-rewrite-private.js.
             if (msg.type === 'req' && msg.method === 'connect') {
-              var rewritten = connectRewrite.rewriteConnectForProxy(msg, authToken, proxyScenario);
-              forwardData = JSON.stringify(rewritten);
-              console.log('[ws-proxy] Connect rewritten for proxy pass-through');
+              // Beta.16 (F-39): protocol v4 signs the connect request with the Control UI's own
+              // device key. Rewriting it would break the signature, so it passes through unchanged.
+              console.log('[ws-proxy] Connect passed through unchanged (protocol v4 device auth)');
             }
           } catch (e) {
             console.log(`[ws-proxy] C->G (${connId}): [unparseable]`);

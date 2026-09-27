@@ -93,7 +93,7 @@ const { startBridge, stopBridge } = require('./ai-bridge');
   }
 })();
 
-const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, resolveRemoteConsent, startRemoteConsentPolling, stopRemoteConsentPolling, reinitializeGate, setConsentCallback, setTimeoutCallback, setReceiptCallback, setRuleAppliedCallback, GREEN_SHIELD_PORT } = require('./green-shield-gate');
+const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, resolveRemoteConsent, startRemoteConsentPolling, stopRemoteConsentPolling, reinitializeGate, setConsentCallback, setTimeoutCallback, setReceiptCallback, setRuleAppliedCallback, armSelfCheck, GREEN_SHIELD_PORT } = require('./green-shield-gate');
 const agentSync = require('./agent-sync');
 if (!process.env.VE_ENDPOINT) { process.env.VE_ENDPOINT = 'https://ve-staging.opn.li'; } // Beta fallback — see GT-17 in SessionCloseout
 const { enroll: veEnroll, verify: veVerify, checkStatus: veCheckStatus } = require('./card_ve_client');
@@ -106,6 +106,9 @@ const PROXY_URL = `http://${GATEWAY_HOST}:${PROXY_PORT}`;
 
 // ── CROCbox state directory ────────────────────────────────────
 const CROCBOX_STATE_DIR = path.join(process.env.HOME || '/tmp', '.crocbox');
+// Beta.16: CROCbox's own OpenClaw home. CROCbox never reads or writes the member's ~/.openclaw.
+const OC_STATE_DIR = path.join(CROCBOX_STATE_DIR, 'openclaw-home');
+const OC_CONFIG_PATH = path.join(OC_STATE_DIR, 'openclaw.json');
 function ensureStateDir() {
   if (!fs.existsSync(CROCBOX_STATE_DIR)) {
     fs.mkdirSync(CROCBOX_STATE_DIR, { recursive: true });
@@ -171,6 +174,26 @@ function getBundledPaths() {
   return { node: null, openclaw: null, bundled: false, extracted: false };
 }
 
+// ── Beta.16 (F-40): set aside an out-of-date engine cache ───────
+// ~/.crocbox/openclaw is tagged with the CROCbox version that unpacked it (.crocbox-version).
+// If the tag is missing (every beta.15 copy) or differs, rename the copy aside and let this
+// version unpack its own engine (which includes the Green Shield plugin). Never deletes.
+function refreshEngineCacheIfStale() {
+  var cacheDir = path.join(CROCBOX_STATE_DIR, 'openclaw');
+  var archivePath = path.join(process.resourcesPath || '', 'bundled-openclaw.tar.gz');
+  if (!fs.existsSync(cacheDir) || !fs.existsSync(archivePath)) return;
+  var appVersion = (app && app.getVersion) ? app.getVersion() : '';
+  var cachedVersion = '';
+  try { cachedVersion = fs.readFileSync(path.join(cacheDir, '.crocbox-version'), 'utf8').trim(); } catch (e) {}
+  if (cachedVersion && cachedVersion === appVersion) return;
+  var aside = path.join(CROCBOX_STATE_DIR, 'openclaw-prev-' + (cachedVersion || 'untagged') + '-' + Date.now());
+  try {
+    fs.renameSync(cacheDir, aside);
+    console.log('[CROCbox] Engine cache from ' + (cachedVersion || 'an earlier version') + ' set aside: ' + aside);
+  } catch (e) {
+    console.log('[CROCbox] WARNING: could not set aside old engine cache: ' + e.message);
+  }
+}
 // ── Extract bundled archive on first launch ────────────────────
 function extractBundledArchive(archivePath) {
   return new Promise(function(resolve) {
@@ -189,6 +212,7 @@ function extractBundledArchive(archivePath) {
         if (fs.existsSync(nodeCheck) && fs.existsSync(ocCheck)) {
           // Make node executable
           fs.chmodSync(nodeCheck, 0o755);
+          try { fs.writeFileSync(path.join(extractDir, '.crocbox-version'), (app && app.getVersion) ? app.getVersion() : '', 'utf8'); } catch (e) {}
           console.log('[CROCbox] Extraction complete');
           resolve(true);
         } else {
@@ -200,8 +224,19 @@ function extractBundledArchive(archivePath) {
   });
 }
 // ── Create OpenClaw config for bundled mode ────────────────────
+// Beta.16: folder of the Green Shield plugin inside the engine.
+// Dev: bundled-openclaw/green-shield-plugin. Installed: ~/.crocbox/openclaw/green-shield-plugin.
+function getGreenShieldPluginDir() {
+  var paths = getBundledPaths();
+  if (paths.openclaw) {
+    var engineDir = path.dirname(path.dirname(path.dirname(paths.openclaw)));
+    return path.join(engineDir, 'green-shield-plugin');
+  }
+  if (paths.archivePath) return path.join(CROCBOX_STATE_DIR, 'openclaw', 'green-shield-plugin');
+  return null;
+}
 function ensureOpenClawConfig() {
-  var ocDir = path.join(process.env.HOME || '/tmp', '.openclaw');
+  var ocDir = path.join(OC_STATE_DIR);
   var configPath = path.join(ocDir, 'openclaw.json');
   var authDir = path.join(ocDir, 'agents', 'main', 'agent');
   var authPath = path.join(authDir, 'auth-profiles.json');
@@ -223,14 +258,59 @@ function ensureOpenClawConfig() {
     console.log('[CROCbox] Generated new Gateway auth token');
   }
   if (!config.gateway.mode) config.gateway.mode = 'local';
-  // Set default model to Sonnet (higher rate limits, lower cost, quality conversation)
+  // Beta.16: Opn.li route. BigCROC talks only to ai-bridge on 127.0.0.1:18790,
+  // which forwards to opn.li ai-proxy (OpenRouter ZDR) as the member.
+  // apiKey is a fixed non-secret label: OpenClaw requires a value; ai-bridge ignores it.
+  if (!config.models) config.models = {};
+  if (!config.models.mode) config.models.mode = 'merge';
+  if (!config.models.providers) config.models.providers = {};
+  config.models.providers.opnli = {
+    baseUrl: 'http://127.0.0.1:18790',
+    apiKey: 'opnli-membership',
+    api: 'openai-completions',
+    models: [{
+      id: 'chat',
+      name: 'Opn.li Trusted AI',
+      reasoning: false,
+      input: ['text'],
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      contextWindow: 200000,
+      maxTokens: 8000
+    }]
+  };
   if (!config.agents) config.agents = {};
   if (!config.agents.defaults) config.agents.defaults = {};
   if (!config.agents.defaults.model) config.agents.defaults.model = {};
   if (!config.agents.defaults.model.primary) {
-    config.agents.defaults.model.primary = 'anthropic/claude-sonnet-4-6';
-    console.log('[CROCbox] Default model set to Claude Sonnet 4');
+    config.agents.defaults.model.primary = 'opnli/chat';
+    console.log('[CROCbox] Default model set to opnli/chat (Opn.li Trusted AI)');
   }
+  // Beta.16: Green Shield plugin (official before_tool_call hook; no dist patch).
+  var gsPluginId = 'crocbox-green-shield';
+  var gsPluginDir = getGreenShieldPluginDir();
+  if (!config.plugins) config.plugins = {};
+  if (config.plugins.enabled === false) {
+    delete config.plugins.enabled;
+    console.log('[CROCbox] Removed plugins.enabled=false so the Green Shield can load');
+  }
+  if (Array.isArray(config.plugins.deny)) {
+    config.plugins.deny = config.plugins.deny.filter(function(x) { return x !== gsPluginId; });
+  }
+  if (Array.isArray(config.plugins.allow) && config.plugins.allow.indexOf(gsPluginId) === -1) {
+    config.plugins.allow.push(gsPluginId);
+  }
+  if (!config.plugins.load) config.plugins.load = {};
+  var loadPaths = Array.isArray(config.plugins.load.paths) ? config.plugins.load.paths : [];
+  loadPaths = loadPaths.filter(function(p) { return !/green-shield-plugin\/?$/.test(String(p)); });
+  if (gsPluginDir) {
+    loadPaths.push(gsPluginDir);
+  } else {
+    console.log('[CROCbox] WARNING: Green Shield plugin folder not found; the Green Shield cannot load');
+  }
+  config.plugins.load.paths = loadPaths;
+  if (!config.plugins.entries) config.plugins.entries = {};
+  config.plugins.entries[gsPluginId] = Object.assign({}, config.plugins.entries[gsPluginId] || {}, { enabled: true });
+  console.log('[CROCbox] Green Shield plugin configured: ' + (gsPluginDir || '(missing)'));
   // Remove unrecognized keys that crash newer Gateway versions
   if (config.web) {
     delete config.web;
@@ -261,7 +341,9 @@ function startBundledGateway(bundledPaths) {
       env: Object.assign({}, process.env, {
         HOME: process.env.HOME,
         PATH: '/opt/homebrew/bin:/usr/local/bin:' + (process.env.PATH || ''),
-        BRAVE_API_KEY: process.env.BRAVE_API_KEY || ''
+        BRAVE_API_KEY: process.env.BRAVE_API_KEY || '',
+        OPENCLAW_STATE_DIR: OC_STATE_DIR,
+        OPENCLAW_CONFIG_PATH: OC_CONFIG_PATH
       })
     });
     bundledGatewayProcess = gw;
@@ -297,9 +379,7 @@ function startBundledGateway(bundledPaths) {
 }
 // ── Read OpenClaw config for auth token ────────────────────────
 function readGatewayToken() {
-  const configPath = path.join(
-    process.env.HOME || '/tmp',
-    '.openclaw',
+  const configPath = path.join(OC_STATE_DIR,
     'openclaw.json'
   );
   try {
@@ -357,8 +437,8 @@ function detectOpenClaw() {
 // UPGRADE: User has a prior CROCbox installation. Update CROCbox files only.
 function classifyInstallation() {
   var home = process.env.HOME || '/tmp';
-  var ocConfigPath = require('path').join(home, '.openclaw', 'openclaw.json');
-  var authProfilesPath = require('path').join(home, '.openclaw', 'agents', 'main', 'agent', 'auth-profiles.json');
+  var ocConfigPath = require('path').join(OC_STATE_DIR, 'openclaw.json');
+  var authProfilesPath = require('path').join(OC_STATE_DIR, 'agents', 'main', 'agent', 'auth-profiles.json');
   var crocboxLaunched = require('path').join(home, '.crocbox', 'launched');
 
   // Check 1: Has CROCbox been launched before?
@@ -467,73 +547,106 @@ function autoStartGateway() {
   });
 }
 // ── Connect to Gateway WebSocket ───────────────────────────────
+// ── Gateway helper (protocol v4 via OpenClaw's official GatewayClient) ──
+// Beta.16: OpenClaw 2026.9.6 requires device auth. gateway-helper.mjs runs under
+// the bundled Node and lets OpenClaw sign the challenge. Token passes by env only.
+function getGatewayHelperPath() {
+  var candidates = [
+    path.join(process.resourcesPath || '', 'gateway-helper.mjs'),
+    path.join(__dirname.replace('app.asar', 'app.asar.unpacked'), 'gateway-helper.mjs'),
+    path.join(__dirname, 'gateway-helper.mjs')
+  ];
+  for (var i = 0; i < candidates.length; i++) {
+    if (fs.existsSync(candidates[i])) return candidates[i];
+  }
+  return null;
+}
+function runGatewayHelper(action, token, extraEnv) {
+  return new Promise(function(resolve, reject) {
+    var paths = getBundledPaths();
+    if (!paths.bundled || !paths.extracted || !paths.node || !paths.openclaw) {
+      reject(new Error('bundled engine not available for gateway helper'));
+      return;
+    }
+    var helperPath = getGatewayHelperPath();
+    if (!helperPath) { reject(new Error('gateway-helper.mjs not found')); return; }
+    var ocDir = path.dirname(path.dirname(paths.openclaw));
+    var env = Object.assign({}, process.env, {
+      CROCBOX_OPENCLAW_DIR: ocDir,
+      CROCBOX_GATEWAY_URL: GATEWAY_WS,
+      CROCBOX_GATEWAY_TOKEN: token || '',
+      CROCBOX_VERSION: (app && app.getVersion) ? app.getVersion() : '0.0.0',
+      OPENCLAW_STATE_DIR: OC_STATE_DIR,
+      OPENCLAW_CONFIG_PATH: OC_CONFIG_PATH
+    }, extraEnv || {});
+    var { spawn } = require('child_process');
+    var child = spawn(paths.node, [helperPath, action], { env: env, stdio: ['ignore', 'pipe', 'pipe'] });
+    var out = '', errOut = '', settled = false;
+    var killTimer = setTimeout(function() {
+      if (settled) return;
+      settled = true;
+      try { child.kill(); } catch (e) {}
+      reject(new Error('gateway helper (' + action + ') did not finish within 30 s'));
+    }, 30000);
+    child.stdout.on('data', function(d) { out += d.toString(); });
+    child.stderr.on('data', function(d) { errOut += d.toString(); });
+    child.on('error', function(err) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killTimer);
+      reject(new Error('gateway helper spawn failed: ' + err.message));
+    });
+    child.on('close', function(code) {
+      if (settled) return;
+      settled = true;
+      clearTimeout(killTimer);
+      var lines = out.trim().split('\n');
+      var last = lines[lines.length - 1] || '';
+      var result = null;
+      try { result = JSON.parse(last); } catch (e) {}
+      if (result && result.ok) { resolve(result); return; }
+      var why = result
+        ? (result.stage + ': ' + (typeof result.error === 'string' ? result.error : JSON.stringify(result.error)))
+        : ('exit ' + code + (errOut ? ' - ' + errOut.trim().slice(0, 300) : ''));
+      reject(new Error('gateway helper (' + action + ') failed - ' + why));
+    });
+  });
+}
+// Beta.16 startup self-check (fire drill). Arms a one-time nonce in the gate, then asks the
+// engine to run agents_list carrying that nonce. Passes only if the Green Shield plugin blocks
+// it with "self-check-ok": plugin loaded, gate reached, "no" enforced, tool never ran.
+function runGreenShieldSelfCheck(token) {
+  var nonce = require('crypto').randomBytes(24).toString('hex');
+  armSelfCheck(nonce);
+  return runGatewayHelper('invoke', token, {
+    CROCBOX_INVOKE_TOOL: 'agents_list',
+    CROCBOX_INVOKE_ARGS: JSON.stringify({ crocboxSelfCheck: nonce }),
+    CROCBOX_HELPER_TIMEOUT_MS: '25000'
+  }).then(function(r) {
+    armSelfCheck(null);
+    var res = r && r.result;
+    var msg = (res && res.error && res.error.message) || '';
+    if (res && res.ok === false && res.error && res.error.code === 'forbidden' && msg.indexOf('self-check-ok') !== -1) {
+      return { passed: true, detail: 'agents_list blocked by Green Shield (self-check-ok)' };
+    }
+    return { passed: false, detail: 'unexpected result: ' + String(JSON.stringify(res || null)).slice(0, 300) };
+  }, function(err) {
+    armSelfCheck(null);
+    return { passed: false, detail: err.message };
+  });
+}
 function connectToGateway(token) {
-  return new Promise((resolve, reject) => {
-    const ws = new WebSocket(GATEWAY_WS, {
-      headers: { Origin: GATEWAY_URL }
-    });
-    const timeout = setTimeout(() => {
-      ws.close();
-      reject(new Error('Gateway WebSocket connection timed out'));
-    }, 10000);
-    ws.on('open', () => {
-      console.log('[CROCbox] WebSocket connected to Gateway');
-    });
-    ws.on('message', (data) => {
-      let msg;
-      try { msg = JSON.parse(data.toString()); }
-      catch { return; }
-      if (msg.type === 'event' && msg.event === 'connect.challenge') {
-        console.log('[CROCbox] Received challenge nonce, sending connect...');
-        const connectMsg = {
-          type: 'req',
-          id: 'crocbox-connect-001',
-          method: 'connect',
-          params: {
-            minProtocol: 3,
-            maxProtocol: 3,
-            client: {
-              id: 'openclaw-macos',
-              version: '0.8.0',
-              platform: 'darwin',
-              mode: 'ui',
-              instanceId: 'crocbox-' + Date.now()
-            },
-            role: 'operator',
-            scopes: ['operator.admin', 'operator.approvals', 'operator.pairing'],
-            auth: { token: token },
-            userAgent: 'CROCbox/0.8.0',
-            locale: 'en-US'
-          }
-        };
-        ws.send(JSON.stringify(connectMsg));
-      }
-      if (msg.type === 'res' && msg.id === 'crocbox-connect-001') {
-        clearTimeout(timeout);
-        if (msg.ok) {
-          console.log('[CROCbox] Gateway hello-ok received');
-          console.log('[CROCbox]   Server:', msg.payload.server?.version);
-          console.log('[CROCbox]   ConnID:', msg.payload.server?.connId);
-          console.log('[CROCbox]   Protocol:', msg.payload.protocol);
-          resolve({ ws, hello: msg.payload });
-        } else {
-          ws.close();
-          reject(new Error('Gateway connect failed: ' + (msg.error?.message || 'unknown')));
-        }
-      }
-    });
-    ws.on('error', (err) => {
-      clearTimeout(timeout);
-      reject(new Error('Gateway WebSocket error: ' + err.message));
-    });
-    ws.on('close', () => {
-      console.log('[CROCbox] Gateway WebSocket closed');
-    });
+  return runGatewayHelper('catalog', token).then(function(r) {
+    console.log('[CROCbox] Gateway hello-ok received (helper)');
+    console.log('[CROCbox]   Server:', r.server && r.server.version);
+    console.log('[CROCbox]   Protocol:', r.protocol);
+    console.log('[CROCbox]   Auth:', JSON.stringify(r.auth));
+    return { ws: null, hello: { protocol: r.protocol, server: r.server, auth: r.auth }, catalog: r.catalog };
   });
 }
 // ── BigCROC Workspace Seeding ────────────────────────────────
 function seedBigCROCWorkspace() {
-  const wsPath = require("path").join(require("os").homedir(), ".openclaw", "workspace");
+  const wsPath = require("path").join(OC_STATE_DIR, "workspace");
   try {
     var cur = fs.readFileSync(require("path").join(wsPath, "SOUL.md"), "utf8");
     if (cur.includes("BigCROC")) {
@@ -563,7 +676,7 @@ function seedBigCROCWorkspace() {
 // Writes to ~/.openclaw/agents/bigcroc/ — NEVER to workspace/ or agents/main/
 // Satisfies INV-EU-3: BigCROC files isolated from user's agent files
 function seedBigCROCWorkspaceIsolated() {
-  var bigcrocPath = require("path").join(require("os").homedir(), ".openclaw", "agents", "bigcroc", "agent");
+  var bigcrocPath = require("path").join(OC_STATE_DIR, "agents", "bigcroc", "agent");
   try {
     var cur = fs.readFileSync(require("path").join(bigcrocPath, "SOUL.md"), "utf8");
     if (cur.includes("BigCROC")) {
@@ -843,7 +956,7 @@ async function completeActivation(win, accountId, email, apiKey, provider, acces
 
   // Step 2: Write API key UNCONDITIONALLY (do not gate on VE enrollment)
   if (apiKey) {
-    var ocDir = require('path').join(process.env.HOME || '/tmp', '.openclaw');
+    var ocDir = require('path').join(OC_STATE_DIR);
     var authDir = require('path').join(ocDir, 'agents', 'main', 'agent');
     var authPath = require('path').join(authDir, 'auth-profiles.json');
     if (!fs.existsSync(authDir)) fs.mkdirSync(authDir, { recursive: true });
@@ -998,8 +1111,8 @@ function openTrustActivity() {
 
 // ── keyCARD — Multi-Provider API Key Management ─────────────────
 function getConfiguredProviders() {
-  var configPath = path.join(process.env.HOME || '/tmp', '.openclaw', 'openclaw.json');
-  var keyPath = path.join(process.env.HOME || '/tmp', '.openclaw', 'agents', 'main', 'agent', 'auth-profiles.json');
+  var configPath = path.join(OC_STATE_DIR, 'openclaw.json');
+  var keyPath = path.join(OC_STATE_DIR, 'agents', 'main', 'agent', 'auth-profiles.json');
   var providers = [];
   var activeModel = '';
   try {
@@ -1439,8 +1552,8 @@ function registerIPC(win) {
   ipcMain.handle('crocbox:save-provider', function(_event, data) {
     console.log('[CROCbox] keyCARD: saving provider=' + data.provider + ' model=' + data.model);
     try {
-      var keyPath = path.join(process.env.HOME || '/tmp', '.openclaw', 'agents', 'main', 'agent', 'auth-profiles.json');
-      var configPath = path.join(process.env.HOME || '/tmp', '.openclaw', 'openclaw.json');
+      var keyPath = path.join(OC_STATE_DIR, 'agents', 'main', 'agent', 'auth-profiles.json');
+      var configPath = path.join(OC_STATE_DIR, 'openclaw.json');
 
       // 1. Save API key to auth-profiles.json
       var profiles = { profiles: {} };
@@ -1507,7 +1620,7 @@ function registerIPC(win) {
   ipcMain.handle('crocbox:switch-model', function(_event, model) {
     console.log('[CROCbox] Model switch: ' + model);
     try {
-      var configPath = path.join(process.env.HOME || '/tmp', '.openclaw', 'openclaw.json');
+      var configPath = path.join(OC_STATE_DIR, 'openclaw.json');
       var config = {};
       try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch(e) {}
       if (!config.agents) config.agents = { defaults: { model: {} } };
@@ -1549,7 +1662,7 @@ function registerIPC(win) {
     if (result < info.providers.length) {
       var selected = info.providers[result];
       // Look up the model for this provider from openclaw.json
-      var configPath = path.join(process.env.HOME || '/tmp', '.openclaw', 'openclaw.json');
+      var configPath = path.join(OC_STATE_DIR, 'openclaw.json');
       var config = {};
       try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch(e) {}
       var model = '';
@@ -1653,10 +1766,13 @@ app.whenReady().then(async () => {
   })();
 
   // Step 0: Detect OpenClaw — system or bundled
-  var useSystemOC = detectOpenClaw();
+  // Beta.16: CROCbox always runs its own bundled engine in its own home. A system OpenClaw is never used.
+  var useSystemOC = false;
+  if (detectOpenClaw()) console.log('[CROCbox] System OpenClaw present - not used (CROCbox runs its own engine)');
   // Step 0.5: Classify installation scenario (INV-DK-1)
   installScenario = classifyInstallation();
   console.log('[CROCbox] Scenario: ' + installScenario);
+  refreshEngineCacheIfStale();
   var bundled = getBundledPaths();
 
   if (!useSystemOC && !bundled.bundled) {
@@ -1703,7 +1819,7 @@ app.whenReady().then(async () => {
   // EXISTING_OC/UPGRADE: Read config without writing (INV-EU-1, INV-EU-4)
   if (installScenario === 'EXISTING_OC' || installScenario === 'UPGRADE') {
     console.log('[CROCbox] Existing installation — reading config (read-only mode)');
-    var ocConfigPath = require('path').join(process.env.HOME || '/tmp', '.openclaw', 'openclaw.json');
+    var ocConfigPath = require('path').join(OC_STATE_DIR, 'openclaw.json');
     try {
       var existingConfig = JSON.parse(fs.readFileSync(ocConfigPath, 'utf8'));
       console.log('[CROCbox]   Gateway token: ' + (existingConfig.gateway?.auth?.token ? 'present \u2713' : 'MISSING'));
@@ -1711,9 +1827,10 @@ app.whenReady().then(async () => {
     } catch (e) {
       console.log('[CROCbox]   Could not read existing config: ' + e.message);
     // Fix 4: Stale state protection - check auth-profiles.json exists
-    var authProfilesPath = require('path').join(process.env.HOME || '/tmp', '.openclaw', 'agents', 'main', 'agent', 'auth-profiles.json');
-    if (!fs.existsSync(authProfilesPath)) {
-      console.log('[CROCbox] WARNING: launched marker exists but auth-profiles.json missing. Re-triggering activation flow.');
+    // Beta.16: membership (account.json), not a vendor key, is what activation provides.
+    var accountJsonPath = require('path').join(CROCBOX_STATE_DIR, 'account.json');
+    if (!fs.existsSync(accountJsonPath)) {
+      console.log('[CROCbox] WARNING: launched marker exists but account.json missing. Re-triggering activation flow.');
       fs.unlinkSync(require('path').join(process.env.HOME || '/tmp', '.crocbox', 'launched'));
       installScenario = 'NHB';
       console.log('[CROCbox] Classification changed to NHB - activation required');
@@ -1793,6 +1910,25 @@ app.whenReady().then(async () => {
     app.quit();
     return;
   }
+
+  // Step 3.5 (Beta.16): Green Shield startup self-check. BigCROC may not act until the
+  // Green Shield is proven at its post. The gate starts here (moved from Step 7b).
+  startGreenShieldServer();
+  var selfCheck = await runGreenShieldSelfCheck(gatewayToken);
+  if (!selfCheck.passed) {
+    console.error('[CROCbox] Green Shield self-check FAILED: ' + selfCheck.detail);
+    dialog.showMessageBoxSync({
+      type: 'error',
+      title: 'CROCbox — Green Shield',
+      message: 'CROCbox could not confirm that the Green Shield is protecting your AI, so it will not start.',
+      detail: 'Please relaunch CROCbox. If this continues, re-download CROCbox from GitHub.',
+      buttons: ['Quit']
+    });
+    try { if (bundledGatewayProcess) bundledGatewayProcess.kill(); } catch (e) {}
+    app.quit();
+    return;
+  }
+  console.log('[CROCbox] Green Shield self-check PASSED ✓ (' + selfCheck.detail + ')');
 
   // Step 4: Start the HTTP+WS Proxy (A.7 + A.8)
   var deviceId = getCROCboxDeviceId();
@@ -1922,7 +2058,7 @@ app.whenReady().then(async () => {
   // Step 7: Register IPC handlers
   registerIPC(mainWindow);
   // Step 7b: Start Green Shield consent server (CBE — Consent Before Execution)
-  startGreenShieldServer();
+  // Green Shield gate now starts at Step 3.5 (beta.16 self-check)
   // Step 7b2: Start remote consent polling (Item 39) — polls Consent Server
   // for tool holds submitted by ai-proxy with source_product: "crocbox"
   startRemoteConsentPolling();
@@ -2154,28 +2290,13 @@ app.whenReady().then(async () => {
 
   // Step 9: Compute Shield Score from Gateway catalog (SSE-1 through SSE-4)
   try {
-    console.log('[CROCbox] Requesting tools.catalog for Shield Score...');
-    gatewayConnection.ws.send(JSON.stringify({
-      type: 'req',
-      id: 'crocbox-catalog-001',
-      method: 'tools.catalog',
-      params: {}
-    }));
-    // Listen for the catalog response
-    var catalogHandler = function(data) {
-      try {
-        var msg = JSON.parse(data.toString());
-        if (msg.type === 'res' && msg.id === 'crocbox-catalog-001' && msg.ok) {
-          gatewayConnection.ws.removeListener('message', catalogHandler);
-          console.log('[CROCbox] tools.catalog received — computing Shield Score');
-          // Small delay to ensure window is fully loaded
-          setTimeout(function() {
-            computeAndInjectShield(mainWindow, msg.payload);
-          }, 2000);
-        }
-      } catch (e) {}
-    };
-    gatewayConnection.ws.on('message', catalogHandler);
+    console.log('[CROCbox] Shield Score: using tools.catalog from gateway helper...');
+    if (!gatewayConnection || !gatewayConnection.catalog) throw new Error('no catalog from gateway helper');
+    console.log('[CROCbox] tools.catalog received — computing Shield Score');
+    // Small delay to ensure window is fully loaded
+    setTimeout(function() {
+      computeAndInjectShield(mainWindow, gatewayConnection.catalog);
+    }, 2000);
   } catch (err) {
     console.log('[CROCbox] Shield Score: could not request catalog — ' + err.message);
   }

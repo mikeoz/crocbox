@@ -214,6 +214,14 @@ function notifyConsentRequest(requestId, toolName, toolParams) {
 // ── HTTP Consent Server ────────────────────────────────────────
 let server = null;
 
+// Beta.16 startup self-check. main.js arms a one-time nonce; the plugin forwards it in
+// params.crocboxSelfCheck. The gate answers "self-check-ok" (blocked) with no card, no rule,
+// no audit row, and nothing sent to opn.li. The nonce is cleared on first use.
+var selfCheckNonce = null;
+function armSelfCheck(nonce) {
+  selfCheckNonce = (typeof nonce === 'string' && nonce.length >= 16) ? nonce : null;
+}
+
 function startGreenShieldServer() {
   if (OTN_CONNECTED) {
     console.log('[GreenShield] OTN mode: consent.opn.li connected');
@@ -244,6 +252,13 @@ function startGreenShieldServer() {
           var toolParams = data.params || {};
           var requestId = data.requestId || crypto.randomUUID();
           var sessionId = 'crocbox-' + Date.now().toString(36);
+          if (selfCheckNonce && toolParams && toolParams.crocboxSelfCheck === selfCheckNonce) {
+            selfCheckNonce = null;
+            console.log('[GreenShield] Self-check request recognised: tool=' + toolName);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ allowed: false, reason: 'self-check-ok' }));
+            return;
+          }
 
           console.log('[GreenShield] Consent request: tool=' + toolName + ' id=' + requestId);
 
@@ -786,5 +801,6 @@ module.exports = {
   GREEN_SHIELD_PORT,
   pendingGreenConsents,
   pendingRemoteConsents,
-  reinitializeGate
+  reinitializeGate,
+  armSelfCheck
 };
