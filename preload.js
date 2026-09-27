@@ -369,6 +369,8 @@ function renderGreenShieldPanel() {
     } else if (r.recorded === false) {
       center.innerHTML += '<div style="font-size:12px;color:#F59E0B;margin-top:12px;font-weight:600">\u26A0 Decision made but NOT recorded</div>'
         + '<div style="font-size:11px;color:#F59E0B;margin-top:4px;line-height:1.4">This action is not in your Activity log. Contact support.</div>';
+    } else if (r.recorded === true) {
+      center.innerHTML += '<div style="font-size:12px;color:#CBD5E1;margin-top:12px">Recorded in Activity</div>';
     } else if (r.recorded === null) {
       center.innerHTML += '<div style="font-size:12px;color:#94A3B8;margin-top:12px">Recording\u2026</div>';
     }

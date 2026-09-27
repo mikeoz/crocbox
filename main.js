@@ -329,6 +329,28 @@ function ensureOpenClawConfig() {
 }
 let bundledGatewayProcess = null; // Track the spawned Gateway for cleanup
 // ── Start Gateway from bundle ──────────────────────────────────
+// ── Beta.16 (F-50): recognise and stop CROCbox's own engine ──────
+// Own engine = gateway on GATEWAY_PORT run from the installed cache (~/.crocbox/openclaw/) or the dev bundle.
+function isOwnEngineCommand(cmd) {
+  if (!cmd) return false;
+  if (cmd.indexOf(' gateway --port ' + GATEWAY_PORT) === -1) return false;
+  return cmd.indexOf('/.crocbox/openclaw/') !== -1 ||
+         cmd.indexOf(path.join(__dirname, 'bundled-openclaw') + '/') !== -1;
+}
+// Ask a process to stop, wait up to waitMs, then force it.
+function stopPidAndWait(pid, waitMs) {
+  var execSync = require('child_process').execSync;
+  try { process.kill(pid, 'SIGTERM'); } catch (e) { return true; }
+  var waited = 0;
+  while (waited < waitMs) {
+    try { process.kill(pid, 0); } catch (e) { console.log('[CROCbox] PID ' + pid + ' stopped'); return true; }
+    execSync('sleep 0.25');
+    waited += 250;
+  }
+  try { process.kill(pid, 'SIGKILL'); console.log('[CROCbox] PID ' + pid + ' still running after ' + (waitMs / 1000) + 's - forced stop'); } catch (e) {}
+  return false;
+}
+
 function startBundledGateway(bundledPaths) {
   return new Promise((resolve) => {
     console.log('[CROCbox] Starting bundled Gateway...');
@@ -992,7 +1014,7 @@ async function completeActivation(win, accountId, email, apiKey, provider, acces
       fs.appendFileSync(auditPath, JSON.stringify(neuroEntry) + n);
     } catch(ae2) {}
   } else {
-    console.log('[CROCbox] WARNING: No API key in activation callback — BigCROC will not be able to chat');
+    console.log('[CROCbox] Activation callback carried no API key (expected) — BigCROC chats through the opn.li membership');
   }
 
   // Step 3: VE enrollment (separate, non-blocking for key delivery)
@@ -1002,6 +1024,7 @@ async function completeActivation(win, accountId, email, apiKey, provider, acces
     if (result && result.agent_id) {
       veStatus = 'enrolled';
       veAgentId = result.agent_id;
+      refreshTrustBarNetworkLabel(mainWindow); // Beta.16: bar shows Trust Network right after activation
       console.log('[CROCbox] VE enrollment complete: agent_id=' + result.agent_id);
       // Update account.json with agent_id
       try {
@@ -1324,6 +1347,15 @@ function computeAndInjectShield(win, catalogPayload) {
     win.webContents.send('crocbox:trust-bar', { score: currentShieldScore, veLabel: veIndicator, greenShield: greenShieldActive ? true : false });
     console.log('[CROCbox] Trust Bar data sent via IPC (color=' + currentShieldScore.color + ', greenShield=' + (greenShieldActive ? 'true' : 'false') + ')');
   }
+}
+// Beta.16: re-send the Trust Bar with the current Trust Network status.
+// The bar is first drawn at Step 9, before enrollment is checked at Step 10.
+function refreshTrustBarNetworkLabel(win) {
+  if (!win || win.isDestroyed() || !win.webContents || !currentShieldScore) return;
+  var gsOn = (typeof greenShieldActive !== 'undefined' && greenShieldActive) ? true : false;
+  var veIndicator = veStatus === 'enrolled' ? 'Trust Network' : 'Local Mode';
+  win.webContents.send('crocbox:trust-bar', { score: currentShieldScore, veLabel: veIndicator, greenShield: gsOn });
+  console.log('[CROCbox] Trust Bar network label refreshed: ' + veIndicator + ' (veStatus=' + veStatus + ')');
 }
 // ── Welcome Screen (first launch only) ─────────────────────────
 function showWelcomeScreen() {
@@ -1767,6 +1799,26 @@ app.whenReady().then(async () => {
     console.log("[CROCbox] Orphan process check complete");
   })();
 
+  // Beta.16 (F-50): an engine left on the engine port by an earlier CROCbox run is stopped, so this run starts fresh.
+  (function stopOwnStaleEngine() {
+    var execSync = require('child_process').execSync;
+    var pids = '';
+    try { pids = execSync('lsof -nP -tiTCP:' + GATEWAY_PORT + ' -sTCP:LISTEN', { encoding: 'utf8' }).trim(); } catch (e) { pids = ''; }
+    if (!pids) { console.log('[CROCbox] Engine port ' + GATEWAY_PORT + ' clear'); return; }
+    pids.split('\n').forEach(function(pid) {
+      pid = pid.trim();
+      if (!pid) return;
+      var cmd = '';
+      try { cmd = execSync('ps -ww -p ' + pid + ' -o command=', { encoding: 'utf8' }).trim(); } catch (e) { return; }
+      if (isOwnEngineCommand(cmd)) {
+        console.log('[CROCbox] Leftover CROCbox engine on port ' + GATEWAY_PORT + ' (PID ' + pid + ') - stopping it to start fresh');
+        stopPidAndWait(Number(pid), 5000);
+      } else {
+        console.log('[CROCbox] Port ' + GATEWAY_PORT + ' held by another program (PID ' + pid + ') - not touched');
+      }
+    });
+  })();
+
   // Step 0: Detect OpenClaw — system or bundled
   // Beta.16: CROCbox always runs its own bundled engine in its own home. A system OpenClaw is never used.
   var useSystemOC = false;
@@ -1828,15 +1880,15 @@ app.whenReady().then(async () => {
       console.log('[CROCbox]   Model: ' + (existingConfig.agents?.defaults?.model?.primary || 'default') + ' (not modified)');
     } catch (e) {
       console.log('[CROCbox]   Could not read existing config: ' + e.message);
-    // Fix 4: Stale state protection - check auth-profiles.json exists
-    // Beta.16: membership (account.json), not a vendor key, is what activation provides.
+    }
+    // Fix 4 (beta.16, F-55): runs on every EXISTING_OC/UPGRADE start, not only when the config is unreadable.
+    // Membership (account.json), not a vendor key, is what activation provides.
     var accountJsonPath = require('path').join(CROCBOX_STATE_DIR, 'account.json');
     if (!fs.existsSync(accountJsonPath)) {
       console.log('[CROCbox] WARNING: launched marker exists but account.json missing. Re-triggering activation flow.');
-      fs.unlinkSync(require('path').join(process.env.HOME || '/tmp', '.crocbox', 'launched'));
+      try { fs.unlinkSync(require('path').join(process.env.HOME || '/tmp', '.crocbox', 'launched')); } catch (e2) {}
       installScenario = 'NHB';
       console.log('[CROCbox] Classification changed to NHB - activation required');
-    }
     }
   }
   console.log('[CROCbox] OpenClaw: ' + (useSystemOC ? 'system' : 'bundled') + ' \u2713');
@@ -1905,8 +1957,8 @@ app.whenReady().then(async () => {
     dialog.showMessageBoxSync({
       type: 'error',
       title: 'CROCbox — Connection Failed',
-      message: 'CROCbox connected to the Gateway but the handshake failed.',
-      detail: 'Error: ' + err.message + '\n\nThis usually means the Gateway needs to be restarted.\n\n1. Open Terminal\n2. Run: openclaw gateway\n3. Relaunch CROCbox',
+      message: 'CROCbox could not connect to its AI engine.',
+      detail: 'Error: ' + err.message + '\n\nPlease quit and open CROCbox again. If this keeps happening, download the latest CROCbox from GitHub.',
       buttons: ['Quit']
     });
     app.quit();
@@ -2318,6 +2370,7 @@ app.whenReady().then(async () => {
   // Step 10: Check VE enrollment status (TN-4, TN-5, TN-6)
   console.log('[CROCbox] Checking Trust Network enrollment...');
   await checkVeEnrollment();
+  refreshTrustBarNetworkLabel(mainWindow);
   // Inject Trust Network indicator after window loads
   setTimeout(function() {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -2329,6 +2382,16 @@ app.whenReady().then(async () => {
   console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.15 ready');
   console.log('');
 });
+// Beta.16 (F-50): stop CROCbox's engine on every kind of quit (Cmd+Q, menu, window close, error dialogs).
+function stopBundledEngineOnQuit() {
+  if (!bundledGatewayProcess) return;
+  var gwProc = bundledGatewayProcess;
+  bundledGatewayProcess = null;
+  if (gwProc.exitCode !== null || gwProc.signalCode !== null) return;
+  console.log('[CROCbox] Stopping bundled engine (PID ' + gwProc.pid + ')...');
+  stopPidAndWait(gwProc.pid, 5000);
+}
+app.on('will-quit', function() { stopBundledEngineOnQuit(); });
 app.on('window-all-closed', async () => {
   // Don't quit if startup is still in progress (welcome screen closing)
   if (!startupComplete) {
@@ -2337,11 +2400,7 @@ app.on('window-all-closed', async () => {
   }
   console.log('[CROCbox] All windows closed — shutting down');
   // Kill bundled Gateway if we started it
-  if (bundledGatewayProcess) {
-    console.log('[CROCbox] Stopping bundled Gateway...');
-    try { bundledGatewayProcess.kill(); } catch (e) {}
-    bundledGatewayProcess = null;
-  }
+  stopBundledEngineOnQuit();
   if (gatewayConnection && gatewayConnection.ws) {
     gatewayConnection.ws.close();
   }

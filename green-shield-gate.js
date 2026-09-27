@@ -174,8 +174,19 @@ function submitToOTN(toolName, params, sessionId) {
   });
 }
 
-function decideOnOTN(holdId, decision) {
-  if (!OTN_CONNECTED || !holdId) return;
+// Beta.16 (F-51): holds this CROCbox has already answered (holdId -> time). Polling never shows them again.
+var decidedRemoteHolds = new Map();
+
+function decideOnOTN(holdId, decision, done) {
+  var finished = false;
+  function finish(result) {
+    if (finished) return;
+    finished = true;
+    if (typeof done === 'function') {
+      try { done(result); } catch (e) { console.error('[GreenShield] OTN: decide callback threw: ' + e.message); }
+    }
+  }
+  if (!OTN_CONNECTED || !holdId) { finish({ error: 'not connected to OTN' }); return; }
 
   var action = decision === 'allow' ? 'allow' : 'deny';
   var url = new URL(CONSENT_SERVER_URL + '/v1/decide/' + holdId + '/' + action);
@@ -192,11 +203,14 @@ function decideOnOTN(holdId, decision) {
     res.on('data', function(chunk) { body += chunk; });
     res.on('end', function() {
       console.log('[GreenShield] OTN: decide ' + action + ' for hold ' + holdId + ' — ' + res.statusCode);
+      finish({ status: res.statusCode, body: body });
     });
   });
 
+  req.on('timeout', function() { req.destroy(new Error('no reply after 10s')); });
   req.on('error', function(err) {
     console.error('[GreenShield] OTN: decide failed — ' + err.message);
+    finish({ error: err.message });
   });
 
   req.end();
@@ -680,6 +694,7 @@ function pollRemoteConsent() {
             // Skip if we already surfaced this hold, or if a local consent
             // is already pending (avoid showing two cards at once)
             if (pendingRemoteConsents.has(holdId)) continue;
+            if (decidedRemoteHolds.has(holdId)) continue; // Beta.16 (F-51): already answered here
             if (pendingGreenConsents.size > 0) continue;
 
             console.log('[GreenShield] Remote hold found: ' + holdId + ' action=' + hold.action_type + ' target=' + (hold.target || ''));
@@ -746,27 +761,37 @@ function resolveRemoteConsent(holdId, decision) {
 
   writeLocalAudit(holdId, entry.toolName, decision, entry.params);
 
-  // Call /v1/decide on the Consent Server directly
-  decideOnOTN(holdId, decision);
+  // Beta.16 (F-51): remember this hold so polling never shows it again (kept 10 minutes).
+  var now = Date.now();
+  var wasDecidedBefore = decidedRemoteHolds.has(holdId);
+  decidedRemoteHolds.forEach(function(t, id) { if (now - t > 600000) decidedRemoteHolds.delete(id); });
+  decidedRemoteHolds.set(holdId, now);
+
+  // Send the answer to the Consent Server, then send ONE receipt based on its reply.
+  var toolForLog = entry.toolName;
+  decideOnOTN(holdId, decision, function(result) {
+    var recorded = false, auditHash = null, reason;
+    if (result.status >= 200 && result.status < 300) {
+      recorded = true;
+      reason = 'remote-decide-ok';
+      try { var j = JSON.parse(result.body || '{}'); if (j && typeof j.audit_hash === 'string') auditHash = j.audit_hash; } catch (e) {}
+    } else if (result.status === 404 && wasDecidedBefore) {
+      recorded = true;
+      reason = 'remote-already-decided';
+    } else {
+      reason = result.error ? ('remote-decide-error: ' + result.error) : ('remote-decide-status-' + result.status);
+    }
+    console.log('[GreenShield] Remote receipt: recorded=' + recorded + ' reason=' + reason + ' tool=' + toolForLog + ' holdId=' + holdId);
+    if (typeof receiptCallback === 'function') {
+      try {
+        receiptCallback({ requestId: holdId, decision: decision, audit_hash: auditHash, recorded: recorded, reason: reason });
+      } catch (e) {
+        console.error('[GreenShield] Remote receipt callback threw: ' + e.message);
+      }
+    }
+  });
 
   console.log('[GreenShield] Remote resolved: ' + decision + ' tool=' + entry.toolName + ' holdId=' + holdId);
-
-  // Emit receipt — for remote holds, the chain write happens server-side
-  // when /v1/decide is called. We report the decision and let the receipt
-  // callback handle the "recorded" status via polling or the decide response.
-  if (typeof receiptCallback === 'function') {
-    try {
-      receiptCallback({
-        requestId: holdId,
-        decision: decision,
-        audit_hash: null,
-        recorded: false,
-        reason: 'remote-decide-sent'
-      });
-    } catch (e) {
-      console.error('[GreenShield] Remote receipt callback threw: ' + e.message);
-    }
-  }
 
   return { ok: true, decision: decision };
 }

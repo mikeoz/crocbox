@@ -162,6 +162,9 @@ function handleHttpRequest(clientReq, clientRes) {
           '/* Hide OpenClaw update banner — CROCbox pins its own version */' +
           '/* B3: Reserve space for Trust Bar at top of viewport */' +
           'body { margin-top: 40px !important; }' +
+          '/* Beta.16: the chat page frame (.shell) is window-height; shorten it by the Trust Bar so nothing is cut off */' +
+          '.shell { height: calc(100vh - 40px) !important; }' +
+          '@supports (height:100dvh) { .shell { height: calc(100dvh - 40px) !important; } }' +
           '/* B2: Target only the update banner, not all elements with update in class */' +
           '#crocbox-trust-bar ~ div[style*="background-color: rgb(254"], #crocbox-trust-bar ~ div[style*="background-color: red"] { display:none !important; }' +
           '</style>' + getInjectedScript());
