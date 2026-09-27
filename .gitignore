@@ -19,3 +19,4 @@ agent_key.pem
 
 # Patented mechanism — not open-sourced
 connect-rewrite-private.js
+bundled-openclaw-2026.3.2/

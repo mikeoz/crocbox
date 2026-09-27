@@ -1,0 +1,15 @@
+{
+  "id": "crocbox-green-shield",
+  "name": "CROCbox Green Shield",
+  "description": "Asks the NHB for consent before every tool call (Human Consent Layer). Fail-closed.",
+  "categories": [
+    "other"
+  ],
+  "activation": {
+    "onStartup": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false
+  }
+}
