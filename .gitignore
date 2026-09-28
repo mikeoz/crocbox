@@ -20,3 +20,8 @@ agent_key.pem
 # Patented mechanism — not open-sourced
 connect-rewrite-private.js
 bundled-openclaw-2026.3.2/
+
+# Beta.16: old 2026.3.2 engine archive, kept aside, never committed
+bundled-openclaw-2026.3.2.tar.gz
+# Beta.16: set-aside engine archives (Guide v11 Step 0H-2), never committed
+bundled-openclaw-prev-*.tar.gz

@@ -1,7 +1,7 @@
 {
   "name": "crocbox",
-  "version": "1.0.0-beta.15",
-  "description": "CROCbox \u2014 The Agent Trust Layer for OpenClaw",
+  "version": "1.0.0-beta.16",
+  "description": "CROCbox — The Agent Trust Layer for OpenClaw",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -89,6 +89,10 @@
       {
         "from": "Trust.md",
         "to": "Trust.md"
+      },
+      {
+        "from": "gateway-helper.mjs",
+        "to": "gateway-helper.mjs"
       }
     ]
   }
