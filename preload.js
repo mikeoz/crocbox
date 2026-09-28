@@ -48,7 +48,7 @@ ipcRenderer.on('crocbox:inject-auth', function(_event, payload) {
 // Matches AgentChatPanel.tsx from the web member app.
 
 var gsState = { current: 'guarded', pending: null, receipt: null, countdown: 0, countdownTimer: null, scopeOpen: false };
-var GS_COUNTDOWN_SECONDS = 90;
+var GS_COUNTDOWN_SECONDS = 60; // beta.17 (F-67): matches CONSENT_TIMEOUT_MS in green-shield-gate.js
 
 function getGreenShieldSVG(size, color) {
   var fill1 = color === 'red' ? '#7F1D1D' : '#1B5E20';
@@ -349,7 +349,8 @@ function renderGreenShieldPanel() {
         center.innerHTML += '<div style="font-size:12px;color:#CBD5E1;margin-top:8px">Search ran privately \u2014 nothing kept.</div>';
       }
     } else {
-      center.innerHTML += '<div style="font-size:14px;font-weight:500;margin-top:12px">Stopped \u2014 you said No.</div>';
+      var timedOut = gsState.nearExpiry || /timeout/i.test(String(r.decision || '') + ' ' + String(r.reason || '') + ' ' + String(r.result || '')); // beta.17 (F-66)
+      center.innerHTML += '<div style="font-size:14px;font-weight:500;margin-top:12px">' + (timedOut ? 'Stopped \u2014 no answer in time.' : 'Stopped \u2014 you said No.') + '</div>';
       if (subject) {
         center.innerHTML += '<div style="font-size:12px;color:#CBD5E1;margin-top:8px;word-break:break-word">' + escapeHtml(subject) + '</div>';
       }
@@ -682,6 +683,7 @@ ipcRenderer.on('crocbox:green-consent-request', function(_event, data) {
     session_id: data.session_id || '',
     summary_text: data.summary_text || ''
   };
+  gsState.nearExpiry = false;
   gsState.countdown = GS_COUNTDOWN_SECONDS;
   gsState.scopeOpen = false;
   gsState.receipt = null;
@@ -692,6 +694,7 @@ ipcRenderer.on('crocbox:green-consent-request', function(_event, data) {
     gsState.countdown--;
     var textEl = document.getElementById('gs-countdown-text');
     if (textEl) textEl.textContent = 'Expires in ' + gsState.countdown + 's';
+    if (gsState.countdown <= 2) gsState.nearExpiry = true;
     var fillEl = document.getElementById('gs-progress-fill');
     if (fillEl) fillEl.style.width = (gsState.countdown / GS_COUNTDOWN_SECONDS * 100) + '%';
     if (gsState.countdown <= 0) {
@@ -890,7 +893,7 @@ ipcRenderer.on('crocbox:trust-bar', function(_event, data) {
       ctrlPanel.id = 'crocbox-controls-panel';
       ctrlPanel.style.cssText = 'position:fixed;top:38px;left:50%;transform:translateX(-50%);z-index:999998;background:#1a1a1a;border:1px solid #333;border-radius:8px;max-width:320px;width:80%;display:none;box-shadow:0 8px 32px rgba(0,0,0,0.5);font-family:-apple-system,sans-serif;color:#f0f0f0;padding:12px 0;';
       var menuItems = [
-        { id: 'ctrl-keycard', icon: '\uD83D\uDD11', label: 'keyCARD', ipc: 'crocbox:open-keycard' },
+        // beta.17: keyCARD hidden (future build) { id: 'ctrl-keycard', icon: '\uD83D\uDD11', label: 'keyCARD', ipc: 'crocbox:open-keycard' },
         { id: 'ctrl-activity', icon: '\uD83D\uDCCB', label: 'Trust Activity', ipc: 'crocbox:trust-activity' },
         { id: 'ctrl-my-rules', icon: '\uD83D\uDCDC', label: 'My Rules', ipc: 'crocbox:open-my-rules' },
         { id: 'ctrl-trust-model', icon: '\uD83D\uDEE1', label: 'Trust Model', ipc: 'crocbox:open-trust-model' },
@@ -1150,7 +1153,7 @@ ipcRenderer.on('crocbox:open-my-rules', function() {
 // ── CROCbox Identity + IPC Bridge ──────────────────────────────
 contextBridge.exposeInMainWorld('crocbox', {
   // Identity
-  version: '1.0.0-beta.16',
+  version: '1.0.0-beta.17',
   phase: 'soft-launch',
   isCROCbox: true,
   // Shield Scoring Engine — get detail HTML for click-through

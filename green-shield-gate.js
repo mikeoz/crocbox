@@ -142,6 +142,7 @@ function submitToOTN(toolName, params, sessionId) {
     };
 
     console.log('[GreenShield] OTN: submitting hold for ' + toolName);
+    ownHoldSigs.set(toolName + '|' + (detail || toolName), Date.now() + 120000); // beta.17 (F-58)
 
     var req = https.request(options, function(res) {
       var body = '';
@@ -176,6 +177,7 @@ function submitToOTN(toolName, params, sessionId) {
 
 // Beta.16 (F-51): holds this CROCbox has already answered (holdId -> time). Polling never shows them again.
 var decidedRemoteHolds = new Map();
+var ownHoldSigs = new Map(); // beta.17 (F-58): holds this CROCbox submitted itself; never shown again as remote cards
 
 function decideOnOTN(holdId, decision, done) {
   var finished = false;
@@ -691,6 +693,12 @@ function pollRemoteConsent() {
             var hold = crocboxHolds[i];
             var holdId = hold.id || hold.request_id;
             if (!holdId) continue;
+            ownHoldSigs.forEach(function (exp, k) { if (Date.now() > exp) ownHoldSigs.delete(k); });
+            if (ownHoldSigs.has(hold.action_type + '|' + (hold.target || ''))) { // beta.17 (F-58): our own local card already asked
+              if (!decidedRemoteHolds.has(holdId)) console.log('[GreenShield] Own hold skipped: ' + holdId + ' action=' + hold.action_type);
+              decidedRemoteHolds.set(holdId, Date.now());
+              continue;
+            }
             // Skip if we already surfaced this hold, or if a local consent
             // is already pending (avoid showing two cards at once)
             if (pendingRemoteConsents.has(holdId)) continue;

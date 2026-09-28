@@ -1,5 +1,5 @@
 /**
- * CROCbox v1.0.0-beta.16 — Electron Main Process
+ * CROCbox v1.0.0-beta.17 — Electron Main Process
  * 
  * Phase 1: Gateway Connection (with auto-start + native error dialogs)
  * Phase 2: BrowserWindow + Control UI
@@ -50,7 +50,25 @@ console.warn = function() { origWarn.apply(console, arguments); stampedWrite('WA
 console.error = function() { origError.apply(console, arguments); stampedWrite('ERR', arguments); };
 const { startProxy, stopProxy, setGreenShieldActive, PROXY_PORT } = require('./ws-proxy');
 const { computeShieldScore, getShieldDetailHTML, parseCatalog } = require('./shield-score');
-const { startBridge, stopBridge } = require('./ai-bridge');
+const { startBridge, stopBridge, onMemberModel, onAuthFailed } = require('./ai-bridge');
+let currentModelLabel = ''; // beta.17: model shown in the Trust Bar
+onMemberModel(function (model) {
+  currentModelLabel = String(model).split('/').pop();
+  console.log('[CROCbox] Trust Bar model: ' + model);
+  try { if (mainWindow) refreshTrustBarNetworkLabel(mainWindow); } catch (e) {}
+});
+let lastSignInPrompt = 0; // beta.17 (F-60): Sign in again
+onAuthFailed(function () {
+  if (Date.now() - lastSignInPrompt < 120000) return;
+  lastSignInPrompt = Date.now();
+  console.log('[CROCbox] opn.li sign-in expired: offering Sign in again');
+  require('electron').dialog.showMessageBox({ type: 'warning', title: 'Sign in again',
+    message: 'Your opn.li sign-in has expired.',
+    detail: 'BigCROC cannot reach your Trusted AI until you sign in again. Your settings and history are kept.',
+    buttons: ['Sign in again', 'Later'], defaultId: 0, cancelId: 1 }).then(function (r) {
+    if (r.response === 0) { try { startActivationFlow(mainWindow); } catch (e) { console.log('[CROCbox] Sign in again failed: ' + e.message); } }
+  });
+});
 
 // S3: Parse .env BEFORE requiring green-shield-gate, which reads
 // CONSENT_SERVER_URL, CONSENT_SUBMIT_SECRET, and CROCBOX_MEMBER_ID
@@ -310,6 +328,11 @@ function ensureOpenClawConfig() {
   config.plugins.load.paths = loadPaths;
   if (!config.plugins.entries) config.plugins.entries = {};
   config.plugins.entries[gsPluginId] = Object.assign({}, config.plugins.entries[gsPluginId] || {}, { enabled: true });
+  // B17_WEB_SEARCH_DENY: web search goes only through Opn.li's private search (docs: tools.allow / tools.deny)
+  if (!config.tools) config.tools = {};
+  var b17Deny = Array.isArray(config.tools.deny) ? config.tools.deny : [];
+  if (b17Deny.indexOf('web_search') === -1) b17Deny.push('web_search');
+  config.tools.deny = b17Deny;
   console.log('[CROCbox] Green Shield plugin configured: ' + (gsPluginDir || '(missing)'));
   // Remove unrecognized keys that crash newer Gateway versions
   if (config.web) {
@@ -365,7 +388,9 @@ function startBundledGateway(bundledPaths) {
         PATH: '/opt/homebrew/bin:/usr/local/bin:' + (process.env.PATH || ''),
         BRAVE_API_KEY: process.env.BRAVE_API_KEY || '',
         OPENCLAW_STATE_DIR: OC_STATE_DIR,
-        OPENCLAW_CONFIG_PATH: OC_CONFIG_PATH
+        OPENCLAW_CONFIG_PATH: OC_CONFIG_PATH,
+        OPENCLAW_DISABLE_BONJOUR: '1', // beta.17: no LAN announcing (docs: gateway/bonjour)
+        OPENCLAW_NO_AUTO_UPDATE: '1' // beta.17: no update or telemetry requests (docs: update.checkOnStart)
       })
     });
     bundledGatewayProcess = gw;
@@ -599,7 +624,9 @@ function runGatewayHelper(action, token, extraEnv) {
       CROCBOX_GATEWAY_TOKEN: token || '',
       CROCBOX_VERSION: (app && app.getVersion) ? app.getVersion() : '0.0.0',
       OPENCLAW_STATE_DIR: OC_STATE_DIR,
-      OPENCLAW_CONFIG_PATH: OC_CONFIG_PATH
+      OPENCLAW_CONFIG_PATH: OC_CONFIG_PATH,
+      OPENCLAW_DISABLE_BONJOUR: '1', // beta.17: no LAN announcing (docs: gateway/bonjour)
+      OPENCLAW_NO_AUTO_UPDATE: '1' // beta.17: no update or telemetry requests (docs: update.checkOnStart)
     }, extraEnv || {});
     var { spawn } = require('child_process');
     var child = spawn(paths.node, [helperPath, action], { env: env, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -1344,7 +1371,7 @@ function computeAndInjectShield(win, catalogPayload) {
   // Send Trust Bar data via IPC — preload renders it
   if (win && !win.isDestroyed() && win.webContents) {
     var veIndicator = veStatus === 'enrolled' ? 'Trust Network' : 'Local Mode';
-    win.webContents.send('crocbox:trust-bar', { score: currentShieldScore, veLabel: veIndicator, greenShield: greenShieldActive ? true : false });
+    win.webContents.send('crocbox:trust-bar', { score: currentShieldScore, veLabel: veIndicator + (currentModelLabel ? ' · ' + currentModelLabel : ''), greenShield: greenShieldActive ? true : false });
     console.log('[CROCbox] Trust Bar data sent via IPC (color=' + currentShieldScore.color + ', greenShield=' + (greenShieldActive ? 'true' : 'false') + ')');
   }
 }
@@ -1354,7 +1381,7 @@ function refreshTrustBarNetworkLabel(win) {
   if (!win || win.isDestroyed() || !win.webContents || !currentShieldScore) return;
   var gsOn = (typeof greenShieldActive !== 'undefined' && greenShieldActive) ? true : false;
   var veIndicator = veStatus === 'enrolled' ? 'Trust Network' : 'Local Mode';
-  win.webContents.send('crocbox:trust-bar', { score: currentShieldScore, veLabel: veIndicator, greenShield: gsOn });
+  win.webContents.send('crocbox:trust-bar', { score: currentShieldScore, veLabel: veIndicator + (currentModelLabel ? ' · ' + currentModelLabel : ''), greenShield: gsOn });
   console.log('[CROCbox] Trust Bar network label refreshed: ' + veIndicator + ' (veStatus=' + veStatus + ')');
 }
 // ── Welcome Screen (first launch only) ─────────────────────────
@@ -1577,7 +1604,7 @@ function registerIPC(win) {
     require('electron').dialog.showMessageBoxSync({
       type: 'info',
       title: 'About CROCbox',
-      message: 'CROCbox v1.0.0-beta.16',
+      message: 'CROCbox v1.0.0-beta.17',
       detail: 'The Agent Trust Layer for OpenClaw\n\nMy data + Your AI + My control = Living Intelligence\n\n© 2026 Openly Personal Networks, Inc. (Opn.li)\nhttps://opn.li'
     });
     return true;
@@ -1671,57 +1698,11 @@ function registerIPC(win) {
       return { ok: false, error: err.message };
     }
   });
-  // ── Switch Model Picker ──
+  // ── Switch Model (beta.17): opens the member's opn.li Trusted AI page ──
   ipcMain.handle('crocbox:switch-model-picker', function() {
-    var info = getConfiguredProviders();
-    if (info.providers.length === 0) {
-      require('electron').dialog.showMessageBoxSync({
-        type: 'info', title: 'Switch Model',
-        message: 'No providers configured.',
-        detail: 'Open keyCARD to add a provider first.'
-      });
-      return true;
-    }
-    var choices = info.providers.map(function(p) {
-      return p.provider.charAt(0).toUpperCase() + p.provider.slice(1) + (p.active ? ' (active)' : '');
-    });
-    var result = require('electron').dialog.showMessageBoxSync({
-      type: 'question', title: 'Switch Model',
-      message: 'Select active AI provider:',
-      detail: 'Current: ' + (info.activeModel || '(default)') + '\n\nRestart CROCbox after switching.',
-      buttons: choices.concat(['Cancel']),
-      defaultId: choices.length,
-      cancelId: choices.length
-    });
-    if (result < info.providers.length) {
-      var selected = info.providers[result];
-      // Look up the model for this provider from openclaw.json
-      var configPath = path.join(OC_STATE_DIR, 'openclaw.json');
-      var config = {};
-      try { config = JSON.parse(fs.readFileSync(configPath, 'utf8')); } catch(e) {}
-      var model = '';
-      if (selected.provider === 'anthropic') {
-        model = 'anthropic/claude-sonnet-4-6';
-      } else if (config.models && config.models.providers && config.models.providers[selected.provider]) {
-        var pm = config.models.providers[selected.provider].models;
-        if (pm && pm.length > 0) model = pm[0].id;
-      }
-      if (model) {
-        if (!config.agents) config.agents = { defaults: { model: {} } };
-        if (!config.agents.defaults) config.agents.defaults = { model: {} };
-        if (!config.agents.defaults.model) config.agents.defaults.model = {};
-        config.agents.defaults.model.primary = model;
-        if (!config.meta) config.meta = {};
-        config.meta.lastTouchedAt = new Date().toISOString();
-        fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf8');
-        console.log('[CROCbox] Model switched to ' + model + ' (provider: ' + selected.provider + ')');
-        require('electron').dialog.showMessageBoxSync({
-          type: 'info', title: 'Model Switched',
-          message: 'Active model: ' + model,
-          detail: 'Restart CROCbox to use the new provider.'
-        });
-      }
-    }
+    var url = 'https://opn.li/member#trusted-ai';
+    console.log('[CROCbox] Switch Model: opening ' + url);
+    require('electron').shell.openExternal(url);
     return true;
   });
 
@@ -1743,7 +1724,7 @@ let veAgentId = null; // VE agent ID (from enrollment)
 app.whenReady().then(async () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║   CROCbox v1.0.0-beta.16 — Green Shield       ║');
+  console.log('  ║   CROCbox v1.0.0-beta.17 — Green Shield       ║');
   console.log('  ║   The Agent Trust Layer for OpenClaw  ║');
   console.log('  ║   Shield Scoring Engine Edition       ║');
   console.log('  ╚══════════════════════════════════════╝');
@@ -2379,7 +2360,7 @@ app.whenReady().then(async () => {
   }, 3000);
 
   startupComplete = true;
-  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.16 ready');
+  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.17 ready');
   console.log('');
 });
 // Beta.16 (F-50): stop CROCbox's engine on every kind of quit (Cmd+Q, menu, window close, error dialogs).

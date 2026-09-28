@@ -23,7 +23,13 @@ const AUTH_URL = SUPABASE_URL + '/auth/v1/token?grant_type=refresh_token';
 const REST_URL = SUPABASE_URL + '/rest/v1';
 
 const DEFAULT_MODEL = 'anthropic/claude-sonnet-5';
-const MODEL_REFRESH_MS = 5 * 60 * 1000; // Re-check preference every 5 minutes
+const MODEL_REFRESH_MS = 15 * 1000; // beta.17: a model picked on opn.li applies within 15 s
+let modelListener = null;
+let lastAnnouncedModel = '';
+function onMemberModel(fn) { modelListener = fn; }
+let authFailListener = null; // beta.17 (F-60)
+let needsAccountReload = false;
+function onAuthFailed(fn) { authFailListener = fn; } // Re-check preference every 5 minutes
 
 let currentAccessToken = null;
 let currentRefreshToken = null;
@@ -189,16 +195,20 @@ function startBridge() {
 
     let rawBody = '';
     for await (const chunk of req) { rawBody += chunk; }
+    if (needsAccountReload) { needsAccountReload = false; loadAccount(); } // beta.17: pick up a new sign-in
 
     const tokenOk = await ensureValidToken();
     if (!tokenOk) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'token_refresh_failed', message: 'Could not authenticate to opn.li. Please restart CROCbox.' }));
+      res.end(JSON.stringify({ error: 'token_refresh_failed', message: 'Your opn.li sign-in has expired. Use Sign in again in CROCbox.' }));
+      needsAccountReload = true;
+      if (authFailListener) { try { authFailListener(); } catch (e) {} }
       return;
     }
 
     // Fetch member's model preference (cached, refreshes every 5 min)
     await fetchMemberModel();
+    if (memberModel !== lastAnnouncedModel) { lastAnnouncedModel = memberModel; if (modelListener) { try { modelListener(memberModel); } catch (e) {} } }
 
     // Replace the model in the request body with the member's preference
     let parsed;
@@ -213,6 +223,14 @@ function startBridge() {
     const gatewayModel = parsed.model || '(none)';
     parsed.model = memberModel;
     parsed.source_product = 'crocbox';
+    // beta.17: tell BigCROC the model that actually runs (added to the end of the main instructions)
+    if (Array.isArray(parsed.messages)) {
+      const idNote = '\n\n## Model identity (Opn.li)\nThe runtime label opnli/chat is only the Opn.li routing label. The model actually answering is ' + memberModel + ', chosen by the member on opn.li. When asked which model you are, answer ' + memberModel + '.';
+      const first = parsed.messages[0];
+      if (first && first.role === 'system' && typeof first.content === 'string') { first.content += idNote; }
+      else if (first && first.role === 'system' && Array.isArray(first.content)) { first.content.push({ type: 'text', text: idNote }); }
+      else { parsed.messages.unshift({ role: 'system', content: idNote.trim() }); }
+    }
     const body = JSON.stringify(parsed);
 
     console.log('[ai-bridge] Model: gateway sent ' + gatewayModel + ' → using ' + memberModel);
@@ -263,4 +281,4 @@ function stopBridge() {
   }
 }
 
-module.exports = { startBridge, stopBridge, loadAccount };
+module.exports = { startBridge, stopBridge, loadAccount, onMemberModel, onAuthFailed };
