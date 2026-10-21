@@ -281,4 +281,5 @@ function stopBridge() {
   }
 }
 
-module.exports = { startBridge, stopBridge, loadAccount, onMemberModel, onAuthFailed };
+async function getMemberToken() { try { await ensureValidToken(); } catch (e) {} return currentAccessToken; } // beta.18
+module.exports = { startBridge, stopBridge, loadAccount, onMemberModel, onAuthFailed, getMemberToken };

@@ -1153,7 +1153,7 @@ ipcRenderer.on('crocbox:open-my-rules', function() {
 // ── CROCbox Identity + IPC Bridge ──────────────────────────────
 contextBridge.exposeInMainWorld('crocbox', {
   // Identity
-  version: '1.0.0-beta.17',
+  version: '1.0.0-beta.18',
   phase: 'soft-launch',
   isCROCbox: true,
   // Shield Scoring Engine — get detail HTML for click-through

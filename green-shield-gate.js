@@ -39,6 +39,9 @@ const CONSENT_TIMEOUT_MS = 60000;
 // OTN Consent Server config (from .env)
 let CONSENT_SERVER_URL = process.env.CONSENT_SERVER_URL || '';
 let CONSENT_SUBMIT_SECRET = process.env.CONSENT_SUBMIT_SECRET || '';
+let MEMBER_TOKEN = null; // beta.18: the member's opn.li sign-in, required since the 30 Sep membership lock
+let pollRefusalLogged = false;
+function setMemberToken(t) { MEMBER_TOKEN = t || null; }
 let CROCBOX_MEMBER_ID = process.env.CROCBOX_MEMBER_ID || '';
 let OTN_CONNECTED = !!(CONSENT_SERVER_URL && CONSENT_SUBMIT_SECRET && CROCBOX_MEMBER_ID);
 
@@ -198,7 +201,7 @@ function decideOnOTN(holdId, decision, done) {
     port: url.port || 443,
     path: url.pathname,
     method: "POST",
-    headers: { 'Authorization': 'Bearer ' + CONSENT_SUBMIT_SECRET },
+    headers: { 'Authorization': 'Bearer ' + (MEMBER_TOKEN || CONSENT_SUBMIT_SECRET) }, // beta.18
     timeout: 10000
   }, function(res) {
     var body = '';
@@ -505,7 +508,7 @@ function findAndDecideOTNHold(decision) {
     port: pendingUrl.port || 443,
     path: pendingUrl.pathname + pendingUrl.search,
     method: "GET",
-    headers: { 'Authorization': 'Bearer ' + CONSENT_SUBMIT_SECRET },
+    headers: { 'Authorization': 'Bearer ' + (MEMBER_TOKEN || CONSENT_SUBMIT_SECRET) }, // beta.18
     timeout: 10000
   }, function(res) {
     var body = '';
@@ -514,6 +517,7 @@ function findAndDecideOTNHold(decision) {
       try {
         var result = JSON.parse(body);
         var holds = result.pending || result;
+        if (!Array.isArray(holds)) { if (!pollRefusalLogged) { pollRefusalLogged = true; console.log('[GreenShield] OTN: waiting-list check refused: ' + JSON.stringify(result).substring(0, 120)); } } else { pollRefusalLogged = false; } // beta.18
         if (Array.isArray(holds)) {
           // Find the CROCbox hold (source_product = 'crocbox')
           var crocboxHold = holds.find(function(h) {
@@ -676,7 +680,7 @@ function pollRemoteConsent() {
     port: pendingUrl.port || 443,
     path: pendingUrl.pathname + pendingUrl.search,
     method: 'GET',
-    headers: { 'Authorization': 'Bearer ' + CONSENT_SUBMIT_SECRET },
+    headers: { 'Authorization': 'Bearer ' + (MEMBER_TOKEN || CONSENT_SUBMIT_SECRET) }, // beta.18
     timeout: 10000
   }, function(res) {
     var body = '';
@@ -685,6 +689,7 @@ function pollRemoteConsent() {
       try {
         var result = JSON.parse(body);
         var holds = result.pending || result;
+        if (!Array.isArray(holds)) { if (!pollRefusalLogged) { pollRefusalLogged = true; console.log('[GreenShield] OTN: waiting-list check refused: ' + JSON.stringify(result).substring(0, 120)); } } else { pollRefusalLogged = false; } // beta.18
         if (Array.isArray(holds)) {
           var crocboxHolds = holds.filter(function(h) {
             return h.source_product === 'crocbox';
@@ -821,6 +826,7 @@ function reinitializeGate() {
 }
 
 module.exports = {
+  setMemberToken,
   setReceiptCallback,
   setRuleAppliedCallback,
   startGreenShieldServer,

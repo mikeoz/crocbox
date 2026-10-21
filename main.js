@@ -1,5 +1,5 @@
 /**
- * CROCbox v1.0.0-beta.17 — Electron Main Process
+ * CROCbox v1.0.0-beta.18 — Electron Main Process
  * 
  * Phase 1: Gateway Connection (with auto-start + native error dialogs)
  * Phase 2: BrowserWindow + Control UI
@@ -50,7 +50,9 @@ console.warn = function() { origWarn.apply(console, arguments); stampedWrite('WA
 console.error = function() { origError.apply(console, arguments); stampedWrite('ERR', arguments); };
 const { startProxy, stopProxy, setGreenShieldActive, PROXY_PORT } = require('./ws-proxy');
 const { computeShieldScore, getShieldDetailHTML, parseCatalog } = require('./shield-score');
-const { startBridge, stopBridge, onMemberModel, onAuthFailed } = require('./ai-bridge');
+const { startBridge, stopBridge, onMemberModel, onAuthFailed, getMemberToken } = require('./ai-bridge');
+function b18PassToken() { getMemberToken().then(function (t) { try { setMemberToken(t); } catch (e) {} }); } // beta.18
+setTimeout(function () { b18PassToken(); setInterval(b18PassToken, 30000); }, 3000);
 let currentModelLabel = ''; // beta.17: model shown in the Trust Bar
 onMemberModel(function (model) {
   currentModelLabel = String(model).split('/').pop();
@@ -111,7 +113,7 @@ onAuthFailed(function () {
   }
 })();
 
-const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, resolveRemoteConsent, startRemoteConsentPolling, stopRemoteConsentPolling, reinitializeGate, setConsentCallback, setTimeoutCallback, setReceiptCallback, setRuleAppliedCallback, armSelfCheck, GREEN_SHIELD_PORT } = require('./green-shield-gate');
+const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, resolveRemoteConsent, startRemoteConsentPolling, stopRemoteConsentPolling, reinitializeGate, setConsentCallback, setTimeoutCallback, setReceiptCallback, setRuleAppliedCallback, armSelfCheck, GREEN_SHIELD_PORT, setMemberToken } = require('./green-shield-gate');
 const agentSync = require('./agent-sync');
 if (!process.env.VE_ENDPOINT) { process.env.VE_ENDPOINT = 'https://ve-staging.opn.li'; } // Beta fallback — see GT-17 in SessionCloseout
 const { enroll: veEnroll, verify: veVerify, checkStatus: veCheckStatus } = require('./card_ve_client');
@@ -1604,7 +1606,7 @@ function registerIPC(win) {
     require('electron').dialog.showMessageBoxSync({
       type: 'info',
       title: 'About CROCbox',
-      message: 'CROCbox v1.0.0-beta.17',
+      message: 'CROCbox v1.0.0-beta.18',
       detail: 'The Agent Trust Layer for OpenClaw\n\nMy data + Your AI + My control = Living Intelligence\n\n© 2026 Openly Personal Networks, Inc. (Opn.li)\nhttps://opn.li'
     });
     return true;
@@ -1724,7 +1726,7 @@ let veAgentId = null; // VE agent ID (from enrollment)
 app.whenReady().then(async () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║   CROCbox v1.0.0-beta.17 — Green Shield       ║');
+  console.log('  ║   CROCbox v1.0.0-beta.18 — Green Shield       ║');
   console.log('  ║   The Agent Trust Layer for OpenClaw  ║');
   console.log('  ║   Shield Scoring Engine Edition       ║');
   console.log('  ╚══════════════════════════════════════╝');
@@ -2360,7 +2362,7 @@ app.whenReady().then(async () => {
   }, 3000);
 
   startupComplete = true;
-  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.17 ready');
+  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.18 ready');
   console.log('');
 });
 // Beta.16 (F-50): stop CROCbox's engine on every kind of quit (Cmd+Q, menu, window close, error dialogs).
