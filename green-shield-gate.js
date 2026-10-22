@@ -42,6 +42,9 @@ let CONSENT_SUBMIT_SECRET = process.env.CONSENT_SUBMIT_SECRET || '';
 let MEMBER_TOKEN = null; // beta.18: the member's opn.li sign-in, required since the 30 Sep membership lock
 let pollRefusalLogged = false;
 function setMemberToken(t) { MEMBER_TOKEN = t || null; }
+let onSignInRefused = null; let lastRenewAt = 0; // beta.19
+function setSignInRefusedHandler(fn) { onSignInRefused = fn; }
+function b19AskRenew() { if (onSignInRefused && Date.now() - lastRenewAt > 30000) { lastRenewAt = Date.now(); console.log('[GreenShield] OTN: asking for a renewed sign-in'); try { onSignInRefused(); } catch (e) {} } }
 let CROCBOX_MEMBER_ID = process.env.CROCBOX_MEMBER_ID || '';
 let OTN_CONNECTED = !!(CONSENT_SERVER_URL && CONSENT_SUBMIT_SECRET && CROCBOX_MEMBER_ID);
 
@@ -517,7 +520,7 @@ function findAndDecideOTNHold(decision) {
       try {
         var result = JSON.parse(body);
         var holds = result.pending || result;
-        if (!Array.isArray(holds)) { if (!pollRefusalLogged) { pollRefusalLogged = true; console.log('[GreenShield] OTN: waiting-list check refused: ' + JSON.stringify(result).substring(0, 120)); } } else { pollRefusalLogged = false; } // beta.18
+        if (!Array.isArray(holds)) { if (!pollRefusalLogged) { pollRefusalLogged = true; console.log('[GreenShield] OTN: waiting-list check refused: ' + JSON.stringify(result).substring(0, 120)); } b19AskRenew(); } else { if (pollRefusalLogged) console.log('[GreenShield] OTN: waiting-list check recovered'); pollRefusalLogged = false; } // beta.19
         if (Array.isArray(holds)) {
           // Find the CROCbox hold (source_product = 'crocbox')
           var crocboxHold = holds.find(function(h) {
@@ -689,7 +692,7 @@ function pollRemoteConsent() {
       try {
         var result = JSON.parse(body);
         var holds = result.pending || result;
-        if (!Array.isArray(holds)) { if (!pollRefusalLogged) { pollRefusalLogged = true; console.log('[GreenShield] OTN: waiting-list check refused: ' + JSON.stringify(result).substring(0, 120)); } } else { pollRefusalLogged = false; } // beta.18
+        if (!Array.isArray(holds)) { if (!pollRefusalLogged) { pollRefusalLogged = true; console.log('[GreenShield] OTN: waiting-list check refused: ' + JSON.stringify(result).substring(0, 120)); } b19AskRenew(); } else { if (pollRefusalLogged) console.log('[GreenShield] OTN: waiting-list check recovered'); pollRefusalLogged = false; } // beta.19
         if (Array.isArray(holds)) {
           var crocboxHolds = holds.filter(function(h) {
             return h.source_product === 'crocbox';
@@ -827,6 +830,7 @@ function reinitializeGate() {
 
 module.exports = {
   setMemberToken,
+  setSignInRefusedHandler,
   setReceiptCallback,
   setRuleAppliedCallback,
   startGreenShieldServer,

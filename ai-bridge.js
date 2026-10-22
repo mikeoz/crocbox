@@ -282,4 +282,5 @@ function stopBridge() {
 }
 
 async function getMemberToken() { try { await ensureValidToken(); } catch (e) {} return currentAccessToken; } // beta.18
-module.exports = { startBridge, stopBridge, loadAccount, onMemberModel, onAuthFailed, getMemberToken };
+async function renewMemberToken() { const b19Before = currentAccessToken; loadAccount(); if (currentAccessToken && currentAccessToken !== b19Before) { console.log('[ai-bridge] Newer sign-in found in account.json'); return currentAccessToken; } const ok = await refreshToken(); if (!ok && authFailListener) { try { authFailListener(); } catch (e) {} } return ok ? currentAccessToken : null; } // beta.19
+module.exports = { startBridge, stopBridge, loadAccount, onMemberModel, onAuthFailed, getMemberToken, renewMemberToken };

@@ -1,5 +1,5 @@
 /**
- * CROCbox v1.0.0-beta.18 — Electron Main Process
+ * CROCbox v1.0.0-beta.19 — Electron Main Process
  * 
  * Phase 1: Gateway Connection (with auto-start + native error dialogs)
  * Phase 2: BrowserWindow + Control UI
@@ -50,9 +50,10 @@ console.warn = function() { origWarn.apply(console, arguments); stampedWrite('WA
 console.error = function() { origError.apply(console, arguments); stampedWrite('ERR', arguments); };
 const { startProxy, stopProxy, setGreenShieldActive, PROXY_PORT } = require('./ws-proxy');
 const { computeShieldScore, getShieldDetailHTML, parseCatalog } = require('./shield-score');
-const { startBridge, stopBridge, onMemberModel, onAuthFailed, getMemberToken } = require('./ai-bridge');
+const { startBridge, stopBridge, onMemberModel, onAuthFailed, getMemberToken, renewMemberToken } = require('./ai-bridge');
 function b18PassToken() { getMemberToken().then(function (t) { try { setMemberToken(t); } catch (e) {} }); } // beta.18
-setTimeout(function () { b18PassToken(); setInterval(b18PassToken, 30000); }, 3000);
+function b19Renew() { renewMemberToken().then(function (t) { if (t) { setMemberToken(t); console.log('[CROCbox] Green Shield sign-in renewed'); } else { console.log('[CROCbox] Green Shield sign-in could not be renewed: Sign in again offered'); } }); } // beta.19
+setTimeout(function () { try { setSignInRefusedHandler(b19Renew); } catch (e) {} b18PassToken(); setInterval(b18PassToken, 30000); }, 3000);
 let currentModelLabel = ''; // beta.17: model shown in the Trust Bar
 onMemberModel(function (model) {
   currentModelLabel = String(model).split('/').pop();
@@ -113,7 +114,7 @@ onAuthFailed(function () {
   }
 })();
 
-const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, resolveRemoteConsent, startRemoteConsentPolling, stopRemoteConsentPolling, reinitializeGate, setConsentCallback, setTimeoutCallback, setReceiptCallback, setRuleAppliedCallback, armSelfCheck, GREEN_SHIELD_PORT, setMemberToken } = require('./green-shield-gate');
+const { startGreenShieldServer, stopGreenShieldServer, resolveGreenConsent, resolveRemoteConsent, startRemoteConsentPolling, stopRemoteConsentPolling, reinitializeGate, setConsentCallback, setTimeoutCallback, setReceiptCallback, setRuleAppliedCallback, armSelfCheck, GREEN_SHIELD_PORT, setMemberToken, setSignInRefusedHandler } = require('./green-shield-gate');
 const agentSync = require('./agent-sync');
 if (!process.env.VE_ENDPOINT) { process.env.VE_ENDPOINT = 'https://ve-staging.opn.li'; } // Beta fallback — see GT-17 in SessionCloseout
 const { enroll: veEnroll, verify: veVerify, checkStatus: veCheckStatus } = require('./card_ve_client');
@@ -980,9 +981,12 @@ async function completeActivation(win, accountId, email, apiKey, provider, acces
   var statePath = require('path').join(require('os').homedir(), '.crocbox');
   try { fs.mkdirSync(statePath, { recursive: true }); } catch(e) {}
   var accountFile = require('path').join(statePath, 'account.json');
+  var b19PrevAgent = null; try { b19PrevAgent = JSON.parse(fs.readFileSync(accountFile, 'utf8')).agent_id || null; } catch (e) {} // beta.19
   fs.writeFileSync(accountFile,
     JSON.stringify({ account_id: accountId, email: email || '', activated: new Date().toISOString(), firstRun: true, access_token: accessToken || '', refresh_token: refreshToken || '', member_id: memberId || accountId, anon_key: anonKey || '' }, null, 2), 'utf8');
   console.log('[CROCbox] account.json written: ' + accountFile);
+  if (b19PrevAgent) { try { var b19a = JSON.parse(fs.readFileSync(accountFile, 'utf8')); b19a.agent_id = b19PrevAgent; fs.writeFileSync(accountFile, JSON.stringify(b19a, null, 2), 'utf8'); if (!veAgentId) veAgentId = b19PrevAgent; console.log('[CROCbox] Kept existing agent_id=' + b19PrevAgent); } catch (e) {} } // beta.19
+  try { require('./ai-bridge').loadAccount(); b18PassToken(); console.log('[CROCbox] New sign-in loaded for chat and the Green Shield'); } catch (e) {} // beta.19
 
   // Step 1b: Write CROCBOX_MEMBER_ID to .env so Green Shield gate has it on next launch
   try {
@@ -1049,7 +1053,8 @@ async function completeActivation(win, accountId, email, apiKey, provider, acces
   // Step 3: VE enrollment (separate, non-blocking for key delivery)
   try {
     console.log('[CROCbox] Enrolling with VE...');
-    var result = await veEnroll(accountId, rentalSkiLevel);
+    var b19Status = await checkVeEnrollment(); // beta.19: keep the existing agent; register only if unknown, by member_id
+    var result = (b19Status === 'enrolled' && veAgentId) ? { agent_id: veAgentId } : null;
     if (result && result.agent_id) {
       veStatus = 'enrolled';
       veAgentId = result.agent_id;
@@ -1606,7 +1611,7 @@ function registerIPC(win) {
     require('electron').dialog.showMessageBoxSync({
       type: 'info',
       title: 'About CROCbox',
-      message: 'CROCbox v1.0.0-beta.18',
+      message: 'CROCbox v1.0.0-beta.19',
       detail: 'The Agent Trust Layer for OpenClaw\n\nMy data + Your AI + My control = Living Intelligence\n\n© 2026 Openly Personal Networks, Inc. (Opn.li)\nhttps://opn.li'
     });
     return true;
@@ -1726,7 +1731,7 @@ let veAgentId = null; // VE agent ID (from enrollment)
 app.whenReady().then(async () => {
   console.log('');
   console.log('  ╔══════════════════════════════════════╗');
-  console.log('  ║   CROCbox v1.0.0-beta.18 — Green Shield       ║');
+  console.log('  ║   CROCbox v1.0.0-beta.19 — Green Shield       ║');
   console.log('  ║   The Agent Trust Layer for OpenClaw  ║');
   console.log('  ║   Shield Scoring Engine Edition       ║');
   console.log('  ╚══════════════════════════════════════╝');
@@ -2362,7 +2367,7 @@ app.whenReady().then(async () => {
   }, 3000);
 
   startupComplete = true;
-  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.18 ready');
+  console.log('[CROCbox] ✓ CROCbox v1.0.0-beta.19 ready');
   console.log('');
 });
 // Beta.16 (F-50): stop CROCbox's engine on every kind of quit (Cmd+Q, menu, window close, error dialogs).
